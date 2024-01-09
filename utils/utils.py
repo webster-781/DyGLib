@@ -493,3 +493,61 @@ class NegativeEdgeSampler(object):
         :return:
         """
         self.random_state = np.random.RandomState(self.seed)
+
+def vectorized_update_mem_3d(mem: torch.Tensor, non_zero_counts: torch.Tensor, update:torch.Tensor) -> torch.Tensor:
+    """
+    Update a 3D tensor 'mem' by appending values from 'update' tensor to each 'row' of 'mem'. 
+    This function operates in a queue-like fashion for each row in the second dimension of 'mem'. 
+    If a row has zeros (indicated by non_zero_counts), the first zero is replaced by the corresponding value from 'update'.
+    If a row is full, it is shifted one place to the left, and the corresponding value from 'update' is added to the end.
+
+    Parameters:
+    mem (torch.Tensor): A 3D tensor of shape (n, seq_len, d) representing the memory to be updated.
+    non_zero_counts (torch.Tensor): A 1D tensor of shape (n,) containing the count of non-zero 'rows' 
+                                    in the second dimension of 'mem'. Each element should be an integer.
+    update (torch.Tensor): A 2D tensor of shape (n, d) containing the values to be appended to each 'row' of 'mem'.
+
+    Returns:
+    torch.Tensor: The updated memory tensor of shape (n, seq_len, d).
+
+    Note:
+    - 'n' is the number of sequences, 'seq_len' is the sequence length, and 'd' is the size of each element in the sequence.
+    - This function assumes that 'mem' has been appropriately padded with zeros where necessary.
+    - The function operates in-place on 'mem', and the updated 'mem' tensor is also returned.
+    # Example usage
+    n = 3
+    d = 4
+    mem = torch.rand(n, 5, d)  # Example 3D tensor
+    print(mem)
+    non_zero_counts = torch.tensor([2, 3, 5])  # Counts of non-zero 'rows' in the second dimension
+    update = torch.rand(n, d)  # Update tensor
+    print(update)
+    updated_mem = vectorized_update_mem_3d(mem, non_zero_counts, update)
+    print(updated_mem)
+    """
+    
+    n, seq_len, d = mem.shape
+    update = update.unsqueeze(1)  # Reshape for broadcasting
+    update = update.expand(n, 1, d)  # Expand to match the third dimension
+
+    # Mask for rows that are full and need shifting
+    full_rows_mask = non_zero_counts >= seq_len
+    non_full_rows_mask = non_zero_counts < seq_len
+
+    # Shift the full rows
+    mem[full_rows_mask] = torch.roll(mem[full_rows_mask], -1, dims=1)
+
+    # Determine insertion index for each row
+    insertion_index = non_zero_counts.clone()
+    insertion_index[full_rows_mask] = seq_len - 1  # If row is full, set index to last position
+
+    # Create a mask for insertion points
+    insertion_mask = torch.zeros(n, seq_len, dtype=torch.bool, device=mem.device)
+    insertion_mask.scatter_(1, insertion_index.unsqueeze(1), True)
+    insertion_mask = insertion_mask.unsqueeze(-1).expand(-1, -1, d)
+
+    # Insert new values
+    mem = torch.where(insertion_mask, update, mem)
+    non_zero_counts[non_full_rows_mask] += 1
+
+    return mem, non_zero_counts
