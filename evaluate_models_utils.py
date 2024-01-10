@@ -80,7 +80,7 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
                                                                       dst_node_ids=batch_neg_dst_node_ids,
                                                                       node_interact_times=batch_node_interact_times,
                                                                       num_neighbors=num_neighbors)
-            elif model_name in ['JODIE', 'DyRep', 'TGN']:
+            elif model_name in ['JODIE', 'DyRep', 'TGN', 'DecoLP']:
                 # note that negative nodes do not change the memories while the positive nodes change the memories,
                 # we need to first compute the embeddings of negative nodes for memory-based models
                 # get temporal embedding of negative source and negative destination nodes

@@ -49,6 +49,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--negative_sample_strategy', type=str, default='random', choices=['random', 'historical', 'inductive'],
                         help='strategy for the negative edge sampling')
     parser.add_argument('--load_best_configs', action='store_true', default=False, help='whether to load the best configurations')
+    parser.add_argument('--use_wandb', type = str, default = 'no', help='do you want to track this run using wandb? If arg is `no`, then don`t track. Else, track using wandb and name the run `run_name_dataset`')
 
     try:
         args = parser.parse_args()
@@ -63,6 +64,9 @@ def get_link_prediction_args(is_evaluation: bool = False):
     if args.load_best_configs:
         load_link_prediction_best_configs(args=args)
 
+    if args.use_wandb != 'no':
+        args.use_wandb = f'{args.use_wandb}_{args.dataset_name}_{args.sample_neighbor_strategy}'
+        
     return args
 
 

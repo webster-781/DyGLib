@@ -131,7 +131,7 @@ class DecoLP(torch.nn.Module):
             node_ids=node_ids,
             node_raw_messages=self.memory_bank.node_raw_messages,
         )
-        
+
         # compute the node temporal embeddings using the embedding module
         # compute differences between the time the memory of a node was last updated, and the time for which we want to compute the embedding of a node
         # Tensor, shape (batch_size, )
@@ -229,10 +229,11 @@ class DecoLP(torch.nn.Module):
             unique_node_messages,
             unique_node_timestamps,
             to_not_update_node_ids,
-            unique_inverse_indices
+            unique_inverse_indices,
         ) = self.message_aggregator.aggregate_messages(
-            node_ids=node_ids, node_raw_messages=node_raw_messages
+            node_ids=node_ids, node_raw_messages=node_raw_messages, device=self.device
         )
+
         # get updated memory for all nodes with messages stored in previous batches (just for computation)
         # updated_node_memories, Tensor, shape (num_nodes, memory_dim)
         # updated_node_last_updated_times, Tensor, shape (num_nodes, )
@@ -240,13 +241,14 @@ class DecoLP(torch.nn.Module):
             updated_node_memories,
             updated_node_last_updated_times,
         ) = self.memory_updater.get_updated_memories(
-            all_node_ids = node_ids,
+            all_node_ids=node_ids,
             unique_node_ids=unique_node_ids,
-            to_update_node_ids = to_update_node_ids,
-            to_not_update_node_ids = to_not_update_node_ids, 
+            to_update_node_ids=to_update_node_ids,
+            to_not_update_node_ids=to_not_update_node_ids,
             unique_node_messages=unique_node_messages,
             unique_node_timestamps=unique_node_timestamps,
-            unique_inverse_indices = unique_inverse_indices,
+            unique_inverse_indices=unique_inverse_indices,
+            device=self.device,
         )
 
         return updated_node_memories, updated_node_last_updated_times
@@ -269,9 +271,9 @@ class DecoLP(torch.nn.Module):
             unique_node_messages,
             unique_node_timestamps,
             to_not_update_node_ids,
-            unique_inverse_indices
+            unique_inverse_indices,
         ) = self.message_aggregator.aggregate_messages(
-            node_ids=node_ids, node_raw_messages=node_raw_messages
+            node_ids=node_ids, node_raw_messages=node_raw_messages, device=self.device
         )
 
         # update the memories with the aggregated messages
@@ -279,6 +281,7 @@ class DecoLP(torch.nn.Module):
             unique_node_ids=unique_node_ids[to_update_node_ids],
             unique_node_messages=unique_node_messages,
             unique_node_timestamps=unique_node_timestamps,
+            device=self.device,
         )
 
     def compute_new_node_raw_messages(
@@ -417,7 +420,7 @@ class MemoryBankDecoLP(nn.Module):
         :param node_ids: ndarray, shape (batch_size, )
         :return:
         """
-        return self.node_memories[torch.from_numpy(node_ids)]
+        return self.node_memories[node_ids]
 
     def get_embeddings(self, node_ids: np.ndarray):
         """
@@ -425,7 +428,7 @@ class MemoryBankDecoLP(nn.Module):
         this embedding is actually nothing but the first `dim` dimensions of the latest transformer ouptut for that layer
         """
         ids = torch.from_numpy(node_ids)
-        return self.node_memories[ids, self.node_num_updates[ids], : self.memory_dim]
+        return self.node_memories[ids, torch.max(torch.tensor(0), self.node_num_updates[ids]-1), : self.memory_dim]
 
     def set_memories(self, node_ids: np.ndarray, updated_node_memories: torch.Tensor):
         """
@@ -435,11 +438,11 @@ class MemoryBankDecoLP(nn.Module):
         :return:
         """
         (
-            self.node_memories[torch.from_numpy(node_ids)],
-            self.node_num_updates,
+            self.node_memories[node_ids],
+            self.node_num_updates[node_ids],
         ) = vectorized_update_mem_3d(
-            self.node_memories[torch.from_numpy(node_ids)],
-            self.node_num_updates,
+            self.node_memories[node_ids],
+            self.node_num_updates[node_ids],
             updated_node_memories,
         )
 
@@ -530,7 +533,7 @@ class MemoryBankDecoLP(nn.Module):
         :param unique_node_ids: ndarray, (num_unique_node_ids, )
         :return:
         """
-        return self.node_last_updated_times[torch.from_numpy(unique_node_ids)]
+        return self.node_last_updated_times[unique_node_ids]
 
     def extra_repr(self):
         """
@@ -578,6 +581,7 @@ class MemoryUpdaterDecoLP(nn.Module):
         unique_node_ids: np.ndarray,
         unique_node_messages: torch.Tensor,
         unique_node_timestamps: np.ndarray,
+        device: str,
     ):
         """
         update memories for nodes in unique_node_ids
@@ -593,9 +597,7 @@ class MemoryUpdaterDecoLP(nn.Module):
         assert (
             (
                 self.memory_bank.get_node_last_updated_times(unique_node_ids)
-                <= torch.from_numpy(unique_node_timestamps)
-                .float()
-                .to(unique_node_messages.device)
+                <= unique_node_timestamps.float().to(unique_node_messages.device)
             )
             .all()
             .item()
@@ -606,8 +608,11 @@ class MemoryUpdaterDecoLP(nn.Module):
         # Tensor, shape (num_unique_node_ids,)
         node_num_updates = self.memory_bank.node_num_updates[unique_node_ids].clone()
         # Tensor, shape (num_unique_node_ids, save_prev + 1, transformer_dim)
-        node_memories = torch.stack(
-            (node_memories, torch.zeros(num_unique_node_ids, 1, self.transformer_dim)),
+        node_memories = torch.cat(
+            (
+                node_memories,
+                torch.zeros(num_unique_node_ids, 1, self.transformer_dim).to(device),
+            ),
             dim=1,
         )
 
@@ -621,8 +626,8 @@ class MemoryUpdaterDecoLP(nn.Module):
 
         # updated_node_memories should contain [u|i|t|f]    --> u is the node1 embedding
         #                                                   --> i is the node2 embedding
-        updated_node_memories = torch.stack(
-            (updated_node_memories, unique_node_messages[:, self.memory_dim:]), dim=1
+        updated_node_memories = torch.cat(
+            (updated_node_memories, unique_node_messages[:, self.memory_dim :]), dim=1
         )
 
         # update memories for nodes in unique_node_ids
@@ -631,11 +636,9 @@ class MemoryUpdaterDecoLP(nn.Module):
         )
 
         # update last updated times for nodes in unique_node_ids
-        self.memory_bank.node_last_updated_times[torch.from_numpy(unique_node_ids)] = (
-            torch.from_numpy(unique_node_timestamps)
-            .float()
-            .to(unique_node_messages.device)
-        )
+        self.memory_bank.node_last_updated_times[
+            unique_node_ids
+        ] = unique_node_timestamps.float().to(device)
 
     def get_updated_memories(
         self,
@@ -645,7 +648,8 @@ class MemoryUpdaterDecoLP(nn.Module):
         unique_node_timestamps: np.ndarray,
         to_update_node_ids: np.ndarray,
         to_not_update_node_ids: np.ndarray,
-        unique_inverse_indices: np.ndarray
+        unique_inverse_indices: np.ndarray,
+        device: str,
     ):
         """
         get updated memories based on unique_node_ids, unique_node_messages and unique_node_timestamps
@@ -666,11 +670,9 @@ class MemoryUpdaterDecoLP(nn.Module):
         assert (
             (
                 self.memory_bank.get_node_last_updated_times(
-                    unique_node_ids=unique_node_ids
-                )
-                <= torch.from_numpy(unique_node_timestamps)
-                .float()
-                .to(unique_node_messages.device)
+                    unique_node_ids=unique_node_ids[to_update_node_ids]
+                ).to(unique_node_messages.device)
+                <= unique_node_timestamps.float().to(unique_node_messages.device)
             )
             .all()
             .item()
@@ -680,53 +682,68 @@ class MemoryUpdaterDecoLP(nn.Module):
         num_to_update_unique_node_ids = to_update_node_ids.shape[0]
         num_to_not_update_unique_node_ids = to_update_node_ids.shape[0]
         # Tensor, shape (num_unique_node_ids, save_prev, transformer_dim)
-        node_memories= self.memory_bank.get_memories(node_ids=unique_node_ids).clone()
+        node_memories = self.memory_bank.get_memories(node_ids=unique_node_ids).clone()
         # Tensor, shape (num_unique_node_ids,)
-        
-        node_memories_to_update = node_memories[torch.from_numpy(to_update_node_ids)]
-        node_num_updates = self.memory_bank.node_num_updates[all_node_ids].clone()
-        node_to_update_num_updates = node_num_updates[to_update_node_ids]
-        node_to_not_update_num_updates = node_num_updates[to_not_update_node_ids]
-            
-        # Tensor, shape (num_unique_node_ids, save_prev + 1, transformer_dim)
-        node_memories_to_update = torch.cat(
-            (
-                node_memories_to_update,
-                torch.zeros(to_update_node_ids.shape[0], 1, self.transformer_dim).to(
-                    node_memories_to_update.device
+
+        if num_to_update_unique_node_ids > 0:
+            node_memories_to_update = node_memories[to_update_node_ids]
+            node_num_updates = self.memory_bank.node_num_updates[all_node_ids].clone()
+            node_to_update_num_updates = node_num_updates[to_update_node_ids]
+            node_to_not_update_num_updates = node_num_updates[to_not_update_node_ids]
+
+            # Tensor, shape (num_unique_node_ids, save_prev + 1, transformer_dim)
+            node_memories_to_update = torch.cat(
+                (
+                    node_memories_to_update,
+                    torch.zeros(
+                        to_update_node_ids.shape[0], 1, self.transformer_dim
+                    ).to(node_memories_to_update.device),
                 ),
-            ),
-            dim=1,
-        )
+                dim=1,
+            )
 
-        batch_indices_to_update = torch.arange(num_to_update_unique_node_ids)  # Tensor [0, 1, 2, ..., n-1]
-        batch_indices_to_not_update = torch.arange(num_to_not_update_unique_node_ids)  # Tensor [0, 1, 2, ..., n-1]
+            batch_indices_to_update = torch.arange(
+                num_to_update_unique_node_ids
+            )  # Tensor [0, 1, 2, ..., n-1]
 
-        # For nodes to be updated, do the update
-        node_memories_to_update[batch_indices_to_update, node_to_update_num_updates] = unique_node_messages
-        output = self.memory_updater(node_memories_to_update)
+            # For nodes to be updated, do the update
+            node_memories_to_update[
+                batch_indices_to_update, torch.max(torch.tensor(0), node_to_update_num_updates-1)
+            ] = unique_node_messages
+            output = self.memory_updater(node_memories_to_update)
 
-        node_memories_to_update = output[batch_indices_to_update, node_to_update_num_updates]
-        
-        # For nodes to not be updated, 
-        node_memories_to_not_update = node_memories[batch_indices_to_not_update, node_to_not_update_num_updates, :self.memory_dim]
+            node_memories_to_update = output[
+                batch_indices_to_update, node_to_update_num_updates
+            ]
 
-        new_node_memories = torch.zeros(num_unique_node_ids, self.memory_dim)
-        new_node_memories[to_update_node_ids] += node_memories_to_update
-        new_node_memories[to_not_update_node_ids] += node_memories_to_not_update
-        
+        if num_to_update_unique_node_ids > 0:
+            batch_indices_to_not_update = torch.arange(
+                num_to_not_update_unique_node_ids
+            )  # Tensor [0, 1, 2, ..., n-1]
+            # For nodes to not be updated,
+            node_memories_to_not_update = node_memories[
+                batch_indices_to_not_update,
+                torch.max(torch.tensor(0), node_to_not_update_num_updates-1),
+                : self.memory_dim,
+            ]
+
+        new_node_memories = torch.zeros(num_unique_node_ids, self.memory_dim).to(device)
+        if num_to_update_unique_node_ids > 0:
+            new_node_memories[to_update_node_ids] += node_memories_to_update
+
+        if num_to_not_update_unique_node_ids > 0:
+            new_node_memories[to_not_update_node_ids] += node_memories_to_not_update
+
         new_node_memories_for_all_nodes = new_node_memories[unique_inverse_indices]
-        
+
         # Tensor, shape (num_nodes, )
         updated_node_last_updated_times = (
             self.memory_bank.node_last_updated_times.data.clone()
         )
-        
-        updated_node_last_updated_times[torch.from_numpy(unique_node_ids[to_update_node_ids])] = (
-            torch.from_numpy(unique_node_timestamps)
-            .float()
-            .to(unique_node_messages.device)
-        )
+
+        updated_node_last_updated_times[
+            unique_node_ids[to_update_node_ids]
+        ] = unique_node_timestamps.float().to(device)
 
         return new_node_memories_for_all_nodes, updated_node_last_updated_times
 
@@ -760,9 +777,6 @@ class TimeProjectionEmbeddingDecoLP(nn.Module):
         :return:
         """
         # Tensor, shape (batch_size, memory_dim)
-        breakpoint()
-        if node_memories.shape[0] > node_ids.shape[0]:
-            node_memories = node_memories[torch.from_numpy(node_ids)]
         source_embeddings = self.dropout(
             node_memories
             * (1 + self.linear_layer(node_time_intervals.unsqueeze(dim=1)))
@@ -833,17 +847,17 @@ class MemoryUpdaterModule(nn.Module):
         return x
 
 
-
 # Message-related Modules
 class MessageAggregatorDecoLP(nn.Module):
-
     def __init__(self):
         """
         Message aggregator. Given a batch of node ids and corresponding messages, aggregate messages with the same node id.
         """
         super(MessageAggregatorDecoLP, self).__init__()
 
-    def aggregate_messages(self, node_ids: np.ndarray, node_raw_messages: dict):
+    def aggregate_messages(
+        self, node_ids: np.ndarray, node_raw_messages: dict, device: str
+    ):
         """
         given a list of node ids, and a list of messages of the same length,
         aggregate different messages with the same node id (only keep the last message for each node)
@@ -852,8 +866,15 @@ class MessageAggregatorDecoLP(nn.Module):
         each tuple is (message, time) with type (Tensor shape (message_dim, ), a scalar)
         :return:
         """
-        unique_node_ids, unique_inverse_indices = np.unique(node_ids, return_inverse=True)
-        unique_node_messages, unique_node_timestamps, to_update_node_ids, node_ids_inverse_index, to_not_update_node_ids = [], [], [], [], []
+        unique_node_ids, unique_inverse_indices = np.unique(
+            node_ids, return_inverse=True
+        )
+        (
+            unique_node_messages,
+            unique_node_timestamps,
+            to_update_node_ids,
+            to_not_update_node_ids,
+        ) = ([], [], [], [])
 
         for unique_idx, node_id in enumerate(unique_node_ids):
             if len(node_raw_messages[node_id]) > 0:
@@ -863,12 +884,32 @@ class MessageAggregatorDecoLP(nn.Module):
             else:
                 to_not_update_node_ids.append(unique_idx)
         # ndarray, shape (num_to_update_unique_node_ids, ), array of unique node ids
-        to_update_node_ids = np.array(to_update_node_ids)
+        to_update_node_ids = (
+            torch.tensor(to_update_node_ids).type("torch.IntTensor").to(device)
+        )
         # Tensor, shape (num_unique_node_ids, message_dim), aggregated messages for unique nodes
-        unique_node_messages = torch.stack(unique_node_messages, dim=0) if len(unique_node_messages) > 0 else torch.Tensor([])
+        unique_node_messages = (
+            torch.stack(unique_node_messages, dim=0)
+            if len(unique_node_messages) > 0
+            else torch.Tensor([])
+        )
         # ndarray, shape (num_unique_node_ids, ), timestamps for unique nodes
-        unique_node_timestamps = np.array(unique_node_timestamps)
+        unique_node_timestamps = torch.tensor(unique_node_timestamps).to(device)
         # ndarray, shape (num_to_not_update_unique_node_ids, ), array of unique node ids
-        to_not_update_node_ids = np.array(to_update_node_ids)
-        
-        return unique_node_ids, to_update_node_ids, unique_node_messages, unique_node_timestamps, to_not_update_node_ids, unique_inverse_indices
+        to_not_update_node_ids = (
+            torch.tensor(to_update_node_ids).type("torch.IntTensor").to(device)
+        )
+        unique_node_ids = (
+            torch.from_numpy(unique_node_ids).type("torch.IntTensor").to(device)
+        )
+        unique_inverse_indices = (
+            torch.from_numpy(unique_inverse_indices).type("torch.IntTensor").to(device)
+        )
+        return (
+            unique_node_ids,
+            to_update_node_ids,
+            unique_node_messages,
+            unique_node_timestamps,
+            to_not_update_node_ids,
+            unique_inverse_indices,
+        )
