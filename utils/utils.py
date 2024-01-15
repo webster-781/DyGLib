@@ -73,6 +73,12 @@ def create_optimizer(
         optimizer = torch.optim.RMSprop(
             params=model.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
+    elif optimizer_name == "AdamW":
+        optimizer = torch.optim.AdamW(
+            params=model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay
+        )
     else:
         raise ValueError(f"Wrong value for optimizer {optimizer_name}!")
 

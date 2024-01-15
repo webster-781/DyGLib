@@ -138,6 +138,21 @@ if __name__ == "__main__":
                 "dataset": args.dataset_name,
                 "run_name": args.use_wandb,
                 "model": args.model_name,
+                "optimizer": args.optimizer,
+                "learning_rate": args.learning_rate,
+                "dropout": args.dropout,
+                "num_epochs": args.num_epochs,
+                "weight_decay": args.weight_decay,
+                "patience": args.patience,
+                "val_ratio": args.val_ratio,
+                "test_ratio": args.test_ratio,
+                "num_runs": args.num_runs,
+                "negative_sample_strategy": args.negative_sample_strategy,
+                "num_heads": args.num_heads,
+                "num_layers": args.num_layers,
+                "time_gap": args.time_gap,
+                "time_feat_dim": args.time_feat_dim,
+                "num_neighbors": args.num_neighbors
             },
             group="DygLib",
         )
@@ -245,6 +260,7 @@ if __name__ == "__main__":
                 dst_node_mean_time_shift_dst=dst_node_mean_time_shift_dst,
                 dst_node_std_time_shift=dst_node_std_time_shift,
                 device=args.device,
+                save_prev=args.num_neighbors,
             )
 
         elif args.model_name == "CAWN":
