@@ -491,7 +491,7 @@ class MemoryBankDecoLP(nn.Module):
         )
 
         self.node_raw_messages = defaultdict(list)
-        for node_id, node_raw_messages in backup_memory_bank[3].items():
+        for node_id, node_raw_messages in backup_memory_bank[4].items():
             self.node_raw_messages[node_id] = [
                 (node_raw_message[0].clone(), node_raw_message[1].copy())
                 for node_raw_message in node_raw_messages
@@ -503,6 +503,7 @@ class MemoryBankDecoLP(nn.Module):
         :return:
         """
         self.node_memories.detach_()
+        self.node_embeddings.detach_()
 
         # Detach all stored messages
         for node_id, node_raw_messages in self.node_raw_messages.items():

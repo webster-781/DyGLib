@@ -163,7 +163,7 @@ if __name__ == "__main__":
         set_random_seed(seed=run)
 
         args.seed = run
-        args.save_model_name = f"{args.model_name}_seed{args.seed}"
+        args.save_model_name = f"{args.model_name}_seed{args.seed}_{wandb_run.name}"
 
         # set up logger
         logging.basicConfig(level=logging.INFO)
