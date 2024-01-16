@@ -821,11 +821,11 @@ class MemoryUpdaterModule(nn.Module):
         self.num_layers = num_layers
         self.memory_dim = memory_dim
         self.norm = nn.LayerNorm(self.transformer_dim)
-        self.decoder_layer = nn.TransformerDecoderLayer(
+        self.encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.transformer_dim, nhead=self.num_heads, dropout=self.dropout
         )
-        self.decoder = nn.TransformerDecoder(
-            decoder_layer=self.decoder_layer, num_layers=self.num_layers, norm=self.norm
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer=self.encoder_layer, num_layers=self.num_layers, norm=self.norm
         )
         self.pos_encoder = PositionalEncoding(self.transformer_dim, self.dropout)
         self.output_layer = nn.Linear(
@@ -836,16 +836,16 @@ class MemoryUpdaterModule(nn.Module):
         x = x.permute(1, 0, 2)
         x = self.pos_encoder(x)
         seq_len = x.size(0)  # Sequence length
-        mask = torch.triu(torch.ones(seq_len, seq_len) * float("-inf"), diagonal=1).to(
-            x.device
-        )
+        # mask = torch.triu(torch.ones(seq_len, seq_len) * float("-inf"), diagonal=1).to(
+        #     x.device
+        # )
 
         # For simplicity, let's assume 'tgt' is initially the same as 'mem'
         # but shifted by one position (you might start with a special start token)
         tgt = torch.roll(x, shifts=-1, dims=1)
 
         # Apply causal mask (assuming you're doing autoregressive generation)
-        x = self.decoder(tgt, x, tgt_mask=mask)
+        x = self.encoder(x)
         x = x.permute(1, 0, 2)
         x = self.output_layer(x)
         return x
