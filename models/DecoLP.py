@@ -184,7 +184,6 @@ class DecoLP(torch.nn.Module):
             ) = self.compute_new_node_raw_messages(
                 src_node_ids=src_node_ids,
                 dst_node_ids=dst_node_ids,
-                dst_node_embeddings=dst_node_embeddings,
                 node_interact_times=node_interact_times,
                 edge_ids=edge_ids,
             )
@@ -194,7 +193,6 @@ class DecoLP(torch.nn.Module):
             ) = self.compute_new_node_raw_messages(
                 src_node_ids=dst_node_ids,
                 dst_node_ids=src_node_ids,
-                dst_node_embeddings=src_node_embeddings,
                 node_interact_times=node_interact_times,
                 edge_ids=edge_ids,
             )
@@ -288,7 +286,6 @@ class DecoLP(torch.nn.Module):
         self,
         src_node_ids: np.ndarray,
         dst_node_ids: np.ndarray,
-        dst_node_embeddings: torch.Tensor,
         node_interact_times: np.ndarray,
         edge_ids: np.ndarray,
     ):
@@ -391,6 +388,10 @@ class MemoryBankDecoLP(nn.Module):
             torch.zeros((self.num_nodes, self.save_prev, self.transformer_dim)),
             requires_grad=False,
         )
+        # Parameter for storing dynamic embedding of the nodes, used for creation of raw message
+        self.node_embeddings = nn.Parameter(
+            torch.zeros((self.num_nodes, self.memory_dim)),
+            requires_grad=False,)
         # Parameter, which contains the number of updates for each node until this moment
         self.node_num_updates = nn.Parameter(
             torch.zeros(self.num_nodes, dtype=int), requires_grad=False
@@ -412,6 +413,7 @@ class MemoryBankDecoLP(nn.Module):
         self.node_memories.data.zero_()
         self.node_num_updates.data.zero_()
         self.node_last_updated_times.data.zero_()
+        self.node_embeddings.data.zero_()
         self.node_raw_messages = defaultdict(list)
 
     def get_memories(self, node_ids: np.ndarray):
@@ -428,23 +430,27 @@ class MemoryBankDecoLP(nn.Module):
         this embedding is actually nothing but the first `dim` dimensions of the latest transformer ouptut for that layer
         """
         ids = torch.from_numpy(node_ids)
-        return self.node_memories[ids, torch.max(torch.tensor(0), self.node_num_updates[ids]-1), : self.memory_dim]
+        return self.node_embeddings[ids]
 
-    def set_memories(self, node_ids: np.ndarray, updated_node_memories: torch.Tensor):
+    def set_memories(self, node_ids: np.ndarray, updated_node_memories: torch.Tensor, node_messages: torch.Tensor):
         """
         set memories for nodes in node_ids to updated_node_memories
         :param node_ids: ndarray, shape (batch_size, )
-        :param updated_node_memories: Tensor, shape (num_unique_node_ids, transformer_dim)
+        :param updated_node_memories: Tensor, shape (num_unique_node_ids, memory_dim)
+        :param node_messages: Tensorm, shape (num_unique_node_ids, transformer_dim)
         :return:
         """
+        # Update the node memory with the same raw message
+        # Use the transformer output for updating the node_embeddings only
         (
             self.node_memories[node_ids],
-            self.node_num_updates[node_ids],
+            self.node_num_updates[node_ids]
         ) = vectorized_update_mem_3d(
             self.node_memories[node_ids],
             self.node_num_updates[node_ids],
-            updated_node_memories,
+            node_messages,
         )
+        self.node_embeddings[node_ids] = updated_node_memories
 
     def backup_memory_bank(self):
         """
@@ -460,6 +466,7 @@ class MemoryBankDecoLP(nn.Module):
 
         return (
             self.node_memories.data.clone(),
+            self.node_embeddings.data.clone(),
             self.node_last_updated_times.data.clone(),
             self.node_num_updates.clone(),
             cloned_node_raw_messages,
@@ -473,16 +480,18 @@ class MemoryBankDecoLP(nn.Module):
         """
         (
             self.node_memories.data,
+            self.node_embeddings.data,
             self.node_last_updated_times.data,
             self.node_num_updates.data,
         ) = (
             backup_memory_bank[0].clone(),
             backup_memory_bank[1].clone(),
             backup_memory_bank[2].clone(),
+            backup_memory_bank[3].clone(),
         )
 
         self.node_raw_messages = defaultdict(list)
-        for node_id, node_raw_messages in backup_memory_bank[3].items():
+        for node_id, node_raw_messages in backup_memory_bank[4].items():
             self.node_raw_messages[node_id] = [
                 (node_raw_message[0].clone(), node_raw_message[1].copy())
                 for node_raw_message in node_raw_messages
@@ -494,6 +503,7 @@ class MemoryBankDecoLP(nn.Module):
         :return:
         """
         self.node_memories.detach_()
+        self.node_embeddings.detach_()
 
         # Detach all stored messages
         for node_id, node_raw_messages in self.node_raw_messages.items():
@@ -624,15 +634,9 @@ class MemoryUpdaterDecoLP(nn.Module):
         # Tensor, shape (num_unique_node_ids, memory_dim)
         updated_node_memories = output[batch_indices, node_num_updates]
 
-        # updated_node_memories should contain [u|i|t|f]    --> u is the node1 embedding
-        #                                                   --> i is the node2 embedding
-        updated_node_memories = torch.cat(
-            (updated_node_memories, unique_node_messages[:, self.memory_dim :]), dim=1
-        )
-
         # update memories for nodes in unique_node_ids
         self.memory_bank.set_memories(
-            node_ids=unique_node_ids, updated_node_memories=updated_node_memories
+            node_ids=unique_node_ids, updated_node_memories=updated_node_memories, node_messages = unique_node_messages
         )
 
         # update last updated times for nodes in unique_node_ids
