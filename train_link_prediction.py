@@ -615,10 +615,6 @@ if __name__ == "__main__":
                     ]
                 )
 
-            if args.model_name == "DecoLP":
-                breakpoint()
-
-
             # perform testing once after test_interval_epochs
             if (epoch + 1) % args.test_interval_epochs == 0:
                 test_losses, test_metrics = evaluate_model_link_prediction(
@@ -678,8 +674,9 @@ if __name__ == "__main__":
                             for new_node_test_metric in new_node_test_metrics
                         ]
                     )
-            wandb_log_dict['avg_attn_weight_norm'] = global_log_dict['avg_attn_weight_norm']
-            wandb_log_dict['avg_ff_weight_norm'] = torch.sum([torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear1.weight) + torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear2.weight) for i in range(dynamic_backbone.memory_updater.memory_updater.encoder.num_layers)])
+            if args.model_name == 'DecoLP':
+                wandb_log_dict['avg_attn_weight_norm'] = global_log_dict['avg_attn_weight_norm']
+                wandb_log_dict['avg_ff_weight_norm'] = torch.sum([torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear1.weight) + torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear2.weight) for i in range(dynamic_backbone.memory_updater.memory_updater.encoder.num_layers)])
             wandb_run.log(wandb_log_dict)
             # select the best model based on all the validate metrics
             val_metric_indicator = []
