@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import wandb
 from unittest import mock
+from collections import defaultdict
 
 from models.TGAT import TGAT
 from models.MemoryModel import MemoryModel, compute_src_dst_node_time_shifts
@@ -36,7 +37,7 @@ from utils.load_configs import get_link_prediction_args
 
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
-    global_log_dict = {}
+    global_log_arr = []
     # get arguments
     args = get_link_prediction_args(is_evaluation=False)
 
@@ -251,6 +252,7 @@ if __name__ == "__main__":
                 node_raw_features=node_raw_features,
                 edge_raw_features=edge_raw_features,
                 neighbor_sampler=train_neighbor_sampler,
+                wandb_run = wandb_run,
                 time_feat_dim=args.time_feat_dim,
                 num_layers=args.num_layers,
                 num_heads=args.num_heads,
@@ -261,7 +263,7 @@ if __name__ == "__main__":
                 dst_node_std_time_shift=dst_node_std_time_shift,
                 device=args.device,
                 save_prev=args.num_neighbors,
-                log_dict=global_log_dict,
+                use_ROPe = args.use_ROPe
             )
 
         elif args.model_name == "CAWN":
@@ -675,9 +677,8 @@ if __name__ == "__main__":
                         ]
                     )
             if args.model_name == 'DecoLP':
-                wandb_log_dict['avg_attn_weight_norm'] = global_log_dict['avg_attn_weight_norm']
-                wandb_log_dict['avg_ff_weight_norm'] = torch.sum([torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear1.weight) + torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear2.weight) for i in range(dynamic_backbone.memory_updater.memory_updater.encoder.num_layers)])
-            wandb_run.log(wandb_log_dict)
+                wandb_log_dict['avg_ff_weight_norm'] = torch.sum(torch.tensor([torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear1.weight) + torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear2.weight) for i in range(dynamic_backbone.memory_updater.memory_updater.encoder.num_layers)]))
+            wandb_run.log(wandb_log_dict, commit = True)
             # select the best model based on all the validate metrics
             val_metric_indicator = []
             for metric_name in val_metrics[0].keys():

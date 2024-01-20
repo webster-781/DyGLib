@@ -50,6 +50,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
                         help='strategy for the negative edge sampling')
     parser.add_argument('--load_best_configs', action='store_true', default=False, help='whether to load the best configurations')
     parser.add_argument('--use_wandb', type = str, default = 'no', help='do you want to track this run using wandb? If arg is `no`, then don`t track. Else, track using wandb and name the run `run_name_dataset`')
+    parser.add_argument('--use_ROPe', action = 'store_true', help='Use ROPe embeddings for DecoLP')
 
     try:
         args = parser.parse_args()

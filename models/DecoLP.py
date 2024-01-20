@@ -1,12 +1,13 @@
 import torch
 import numpy as np
 import torch.nn as nn
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import math
 
 from utils.utils import NeighborSampler, vectorized_update_mem_3d
 from models.modules import TimeEncoder
 from models.MemoryModel import MessageAggregator
+from models.ROPeTransformerDecoLP import ROPeTransformerEncoderLayer
 
 
 class DecoLP(torch.nn.Module):
@@ -15,6 +16,7 @@ class DecoLP(torch.nn.Module):
         node_raw_features: np.ndarray,
         edge_raw_features: np.ndarray,
         neighbor_sampler: NeighborSampler,
+        wandb_run,
         time_feat_dim: int,
         num_layers: int = 2,
         num_heads: int = 2,
@@ -25,7 +27,7 @@ class DecoLP(torch.nn.Module):
         dst_node_std_time_shift: float = 1.0,
         save_prev: int = 50,
         device: str = "cpu",
-        log_dict: dict = {},
+        use_ROPe: bool = False
     ):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
@@ -65,7 +67,8 @@ class DecoLP(torch.nn.Module):
         self.dst_node_std_time_shift = dst_node_std_time_shift
         self.memory_dim = self.node_feat_dim
         self.save_prev = save_prev
-        self.log_dict = log_dict
+        self.wandb_run = wandb_run
+        self.use_ROPe = use_ROPe
         # number of nodes, including the padded node
         self.num_nodes = self.node_raw_features.shape[0]
         # since models use the identity function for message encoding, message dimension is 2 * memory_dim + time_feat_dim + edge_feat_dim
@@ -93,7 +96,8 @@ class DecoLP(torch.nn.Module):
             transformer_dim=self.message_dim,
             dropout=self.dropout,
             save_prev=self.save_prev,
-            log_dict = self.log_dict
+            wandb_run = self.wandb_run,
+            use_ROPe = self.use_ROPe
         )
 
         # embedding module
@@ -568,7 +572,8 @@ class MemoryUpdaterDecoLP(nn.Module):
         transformer_dim: int,
         dropout: float,
         save_prev: int,
-        log_dict: dict
+        wandb_run,
+        use_ROPe: bool
     ):
         """
         Memory updater.
@@ -582,14 +587,16 @@ class MemoryUpdaterDecoLP(nn.Module):
         self.dropout = dropout
         self.save_prev = save_prev
         self.memory_dim = memory_dim
-        self.log_dict = log_dict
+        self.wandb_run = wandb_run
+        self.use_ROPe = use_ROPe
         self.memory_updater = MemoryUpdaterModule(
             transformer_dim=self.transformer_dim,
             num_heads=self.num_heads,
             num_layers=self.num_layers,
             dropout=self.dropout,
             memory_dim=self.memory_dim,
-            log_dict=self.log_dict
+            wandb_run=self.wandb_run,
+            use_ROPe = self.use_ROPe
         )
 
     def update_memories(
@@ -818,9 +825,9 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 class TransformerEncoderLayer(nn.TransformerEncoderLayer):
-    def __init__(self, d_model, nhead, dropout, log_dict):
+    def __init__(self, d_model, nhead, dropout, wandb_run):
         super(TransformerEncoderLayer, self).__init__(d_model = d_model, nhead = nhead, dropout = dropout)
-        self.log_dict = log_dict
+        self.wandb_run = wandb_run
         
     # self-attention block
     def _sa_block(self, x, attn_mask, key_padding_mask, is_causal: bool = False):
@@ -828,24 +835,35 @@ class TransformerEncoderLayer(nn.TransformerEncoderLayer):
                            attn_mask=attn_mask,
                            key_padding_mask=key_padding_mask,
                            need_weights=True, is_causal=is_causal)
-        self.log_dict["avg_attn_weight_norm"] = torch.norm(y)
+        self.wandb_run.log({
+            "avg_attn_weight_norm": torch.norm(y).item(),
+            }, commit = False)
         return self.dropout1(x)
 
 class MemoryUpdaterModule(nn.Module):
-    def __init__(self, transformer_dim, num_heads, num_layers, dropout, memory_dim, log_dict):
+    def __init__(self, transformer_dim, num_heads, num_layers, dropout, memory_dim, wandb_run, use_ROPe):
         super(MemoryUpdaterModule, self).__init__()
         self.transformer_dim = transformer_dim
         self.num_heads = num_heads
         self.dropout = dropout
         self.num_layers = num_layers
-        self.log_dict = log_dict
+        self.wandb_run = wandb_run
         self.memory_dim = memory_dim
         self.norm = nn.LayerNorm(self.transformer_dim)
-        self.encoder_layer = TransformerEncoderLayer(
-            d_model=self.transformer_dim, nhead=self.num_heads, dropout=self.dropout, log_dict = self.log_dict
+        
+        if use_ROPe:
+            self.encoder_layer = ROPeTransformerEncoderLayer(
+            d_model=self.transformer_dim, nhead=self.num_heads, dropout=self.dropout, 
+            wandb_run = self.wandb_run
         )
+        
+        else:
+            self.encoder_layer = TransformerEncoderLayer(
+            d_model=self.transformer_dim, nhead=self.num_heads, dropout=self.dropout, wandb_run = self.wandb_run
+        )
+        
         self.encoder = nn.TransformerEncoder(
-            encoder_layer=self.encoder_layer, num_layers=self.num_layers, norm=self.norm
+            encoder_layer=self.encoder_layer, num_layers=self.num_layers, norm=self.norm,
         )
         self.pos_encoder = PositionalEncoding(self.transformer_dim, self.dropout)
         self.output_layer = nn.Linear(
