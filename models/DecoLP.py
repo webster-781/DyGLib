@@ -27,7 +27,8 @@ class DecoLP(torch.nn.Module):
         dst_node_std_time_shift: float = 1.0,
         save_prev: int = 50,
         device: str = "cpu",
-        use_ROPe: bool = False
+        use_ROPe: bool = False,
+        position_feat_dim = 172
     ):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
@@ -65,7 +66,7 @@ class DecoLP(torch.nn.Module):
         self.src_node_std_time_shift = src_node_std_time_shift
         self.dst_node_mean_time_shift_dst = dst_node_mean_time_shift_dst
         self.dst_node_std_time_shift = dst_node_std_time_shift
-        self.memory_dim = self.node_feat_dim
+        self.memory_dim = position_feat_dim
         self.save_prev = save_prev
         self.wandb_run = wandb_run
         self.use_ROPe = use_ROPe
@@ -803,9 +804,10 @@ class TimeProjectionEmbeddingDecoLP(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000, use_ROPe = False):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
+        self.use_ROPe = use_ROPe
 
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(
@@ -821,8 +823,9 @@ class PositionalEncoding(nn.Module):
         Arguments:
             x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
         """
-        x = x + self.pe[: x.size(0)]
-        return self.dropout(x)
+        if not self.use_ROPe:
+            x = self.dropout(x + self.pe[: x.size(0)])
+        return x
 
 class TransformerEncoderLayer(nn.TransformerEncoderLayer):
     def __init__(self, d_model, nhead, dropout, wandb_run):
@@ -850,8 +853,9 @@ class MemoryUpdaterModule(nn.Module):
         self.wandb_run = wandb_run
         self.memory_dim = memory_dim
         self.norm = nn.LayerNorm(self.transformer_dim)
+        self.use_ROPe = use_ROPe
         
-        if use_ROPe:
+        if self.use_ROPe:
             self.encoder_layer = ROPeTransformerEncoderLayer(
             d_model=self.transformer_dim, nhead=self.num_heads, dropout=self.dropout, 
             wandb_run = self.wandb_run
@@ -865,7 +869,8 @@ class MemoryUpdaterModule(nn.Module):
         self.encoder = nn.TransformerEncoder(
             encoder_layer=self.encoder_layer, num_layers=self.num_layers, norm=self.norm,
         )
-        self.pos_encoder = PositionalEncoding(self.transformer_dim, self.dropout)
+        
+        self.pos_encoder = PositionalEncoding(d_model=self.transformer_dim, dropout=self.dropout, use_ROPe=self.use_ROPe)
         self.output_layer = nn.Linear(
             in_features=self.transformer_dim, out_features=self.memory_dim, bias=True
         )

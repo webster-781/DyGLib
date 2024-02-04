@@ -134,6 +134,7 @@ if __name__ == "__main__":
         wandb_run = mock.Mock()
     else:
         wandb_run = wandb.init(
+            entity="fb-graph-proj",
             project="fb-graph-proj-dyglib",
             config={
                 "dataset": args.dataset_name,
@@ -263,7 +264,8 @@ if __name__ == "__main__":
                 dst_node_std_time_shift=dst_node_std_time_shift,
                 device=args.device,
                 save_prev=args.num_neighbors,
-                use_ROPe = args.use_ROPe
+                use_ROPe = args.use_ROPe,
+                position_feat_dim = args.position_feat_dim
             )
 
         elif args.model_name == "CAWN":
@@ -318,9 +320,9 @@ if __name__ == "__main__":
         else:
             raise ValueError(f"Wrong value for model_name {args.model_name}!")
         link_predictor = MergeLayer(
-            input_dim1=node_raw_features.shape[1],
-            input_dim2=node_raw_features.shape[1],
-            hidden_dim=node_raw_features.shape[1],
+            input_dim1=args.position_feat_dim,
+            input_dim2=args.position_feat_dim,
+            hidden_dim=args.position_feat_dim,
             output_dim=1,
         )
         model = nn.Sequential(dynamic_backbone, link_predictor)
