@@ -3,13 +3,21 @@ import numpy as np
 import torch
 from tqdm import tqdm 
 from matplotlib import pyplot as plt
+import multiprocessing as mp
+import itertools
+import wandb
+import argparse
+
+
+ALL_DATASETS = ["SocialEvo", "uci", "Flights", "CanParl", "USLegis", "UNtrade", "UNvote", "Contacts", "mooc", "wikipedia", "reddit", "enron", "myket"]
+ONE_FEAT_DATASETS = ["Flights", "CanParl", "USLegis", "UNtrade", "UNvote", "Contacts"]
 
 def calculate_correlation(old_deg, new_node_new_deg):
   return float(torch.corrcoef(torch.cat((old_deg.unsqueeze(0), new_node_new_deg.unsqueeze(0)), dim = 0))[0, 1])
 
-def calculate_all_correlations(node1, node2, ts, num_nodes, total_time, t1_factor = 0.05, t2_factor = 0.05):
-  t1 = t1_factor * total_time
-  t2 = t2_factor * total_time
+def calculate_all_correlations(node1, node2, ts, num_nodes, total_time, edge_feats, t1_factor = 5, t2_factor = 5, wandb_run = None):
+  t1 = t1_factor * total_time / 100
+  t2 = t2_factor * total_time / 100
   # indices corresponding to:
   p1 = 0  # start of the subgraph [t-t1-t2, t-t2)
   p2 = 0  # end of the subgraph [t-t1-t2, t-t2) and start of the subgraph [t-t2, t]
@@ -56,8 +64,8 @@ def calculate_all_correlations(node1, node2, ts, num_nodes, total_time, t1_facto
       
       while(ts[p2] < ts[p3]-t2):
         # Since this edge is going to the old subgraph [t-t1-t2, t-t2), add to the old_deg
-        old_deg[node1[p2]] += 1
-        old_deg[node2[p2]] += 1
+        old_deg[node1[p2]] += edge_feats[p2]
+        old_deg[node2[p2]] += edge_feats[p2]
         # Since this edge is coming from the new subgraph [t-t2, t]
         # If the other node was seen first at this edge (as indicated by the first element in `is_a_new_node_edge`, 
         # then remove 1 from the new_node_new_deg of this node)
@@ -70,16 +78,44 @@ def calculate_all_correlations(node1, node2, ts, num_nodes, total_time, t1_facto
         
       while(ts[p1] < ts[p3]-t1-t2):
         # Since these edges are being removed from the old subgraph [t-t1-t2, t-t2), decrease old subgraph degree
-        old_deg[node1[p1]] -= 1
-        old_deg[node2[p1]] -= 1
+        old_deg[node1[p1]] -= edge_feats[p1]
+        old_deg[node2[p1]] -= edge_feats[p1]
         # Move the counter ahead
         p1 += 1
       
       correlations.append(calculate_correlation(old_deg, new_node_new_deg))
       times.append(ts[p3])
+      if wandb_run is not None:
+        wandb_run.log({
+          "correlation": float(correlations[-1]),
+          "times": float(times[-1])
+        })
+        wandb_run.summary["correlation"] = torch.mean(torch.tensor(correlations))
     return times, correlations
 
-def calculate_correlation_plots(data_name = "wikipedia"):
+def get_edge_feats(data_name, edge_data):
+  edge_feats = []
+  edge_feats_load = np.load(f'/home/ayush/DyGLib/processed_data/{data_name}/ml_{data_name}.npy').reshape(-1)
+  # if data_name in ONE_FEAT_DATASETS:
+    # edge_feats = torch.tensor(edge_feats_load[1:].tolist())
+  # else:
+  edge_feats = torch.ones(len(edge_data))
+  return edge_feats
+
+def calculate_correlation_plots(data_name = "wikipedia", t1_factor = 5, t2_factor = 5):
+  wandb_run = wandb.init(
+    entity="fb-graph-proj",
+    project="inductive-correlation-check",
+    config={
+      "dataset": data_name,
+      "t1_factor": t1_factor,
+      "t2_factor": t2_factor
+    },
+    group="DygLib",
+    name = f"{data_name}_{t1_factor}_{t2_factor}"
+  )
+  wandb_run.define_metric("correlation")
+  wandb_run.define_metric("times", summary= "max")
   node_feats = np.load(f'/home/ayush/DyGLib/processed_data/{data_name}/ml_{data_name}_node.npy')
   num_nodes = node_feats.shape[0]
   edge_data = pd.read_csv(f'/home/ayush/DyGLib/processed_data/{data_name}/ml_{data_name}.csv')
@@ -96,12 +132,24 @@ def calculate_correlation_plots(data_name = "wikipedia"):
   assert num_nodes == max(max(node1), max(node2)) + 1
 
   total_time = ts[-1] - ts[0]
-  times, correlations = calculate_all_correlations(node1=node1, node2=node2, ts=ts, num_nodes=num_nodes, total_time=total_time, t1_factor = 0.05, t2_factor = 0.05)
+  edge_feats = get_edge_feats(data_name, edge_data)
+  times, correlations = calculate_all_correlations(node1=node1, node2=node2, ts=ts, num_nodes=num_nodes, total_time=total_time, edge_feats = edge_feats, t1_factor = t1_factor, t2_factor = t2_factor, wandb_run = wandb_run)
+  wandb_run.finish()
   plt.plot(torch.arange(0, len(correlations)), correlations)
-  plt.title(f'Correlation b/w old degree and new node neighbor degree for {data_name}')
-  plt.savefig(f"/home/ayush/DyGLib/scripts/corr_figs/{data_name}_corr_fig.png")
+  plt.title(f'Correlation plot: {data_name} with t1 = {t1_factor}, t2 = {t2_factor}')
+  plt.savefig(f"/home/ayush/DyGLib/scripts/corr_figs/{data_name}_corr_fig_{round(t1_factor)}_{round(t2_factor)}.png")
   plt.close()
 
 if __name__ == "__main__":
-  for data_name in ["SocialEvo", "uci", "Flights", "CanParl", "USLegis", "UNtrade", "UNvote", "Contacts", "mooc", "wikipedia", "reddit", "enron", "myket"][-1:]:
-    calculate_correlation_plots(data_name)
+  parser = argparse.ArgumentParser()
+  parser.add_argument("data_name")
+  args = parser.parse_args()
+  # for data_name in :
+  #   calculate_correlation_plots(data_name)
+  t1_factors = [1, 3, 6, 8, 10]
+  t2_factors = [4]
+  datasets = [args.data_name]
+  all_args = itertools.product(datasets, t1_factors, t2_factors)
+  all_args = [(x, y, z) for x, y, z in all_args]
+  for (x, y, z) in all_args:
+    calculate_correlation_plots(x, y, z)

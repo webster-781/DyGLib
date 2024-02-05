@@ -120,4 +120,4 @@ wandb/
 saved_models/
 saved_results/
 DG_data/
-scripts/coerr_figs
+scripts/coerr_figs/
