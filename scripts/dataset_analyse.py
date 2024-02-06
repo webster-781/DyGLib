@@ -13,6 +13,7 @@ ALL_DATASETS = ["SocialEvo", "uci", "Flights", "CanParl", "USLegis", "UNtrade", 
 ONE_FEAT_DATASETS = ["Flights", "CanParl", "USLegis", "UNtrade", "UNvote", "Contacts"]
 
 def calculate_correlation(old_deg, new_node_new_deg):
+  breakpoint()
   return float(torch.corrcoef(torch.cat((old_deg.unsqueeze(0), new_node_new_deg.unsqueeze(0)), dim = 0))[0, 1])
 
 def calculate_all_correlations(node1, node2, ts, num_nodes, total_time, edge_feats, t1_factor = 5, t2_factor = 5, wandb_run = None):
@@ -146,8 +147,9 @@ if __name__ == "__main__":
   args = parser.parse_args()
   # for data_name in :
   #   calculate_correlation_plots(data_name)
-  t1_factors = [1, 3, 6, 8, 10]
   t2_factors = [4]
+  t1_factors_of_t2 = [0.25, 0.75, 1.5, 2, 2.5]
+  t1_factors = [int(t1_factor_of_t2*t2_factors[-1]) for t1_factor_of_t2 in t1_factors_of_t2]
   datasets = [args.data_name]
   all_args = itertools.product(datasets, t1_factors, t2_factors)
   all_args = [(x, y, z) for x, y, z in all_args]
