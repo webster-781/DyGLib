@@ -2,6 +2,8 @@ import random
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
+from tqdm import tqdm
 
 from utils.DataLoader import Data
 
@@ -847,3 +849,57 @@ def set_wandb_metrics(wandb_run):
     wandb_run.define_metric("new node test roc_auc", summary="max")
     wandb_run.define_metric("avg_attn_weight_norm", summary="max")
     wandb_run.define_metric("avg_ff_weight_norm", summary="max")
+
+
+def find_partition_node_degrees_for_new_node_init(dataset_name: str, t1_factor_of_t2: float, t2_factor: float):
+    """
+    Find node degrees for each sub-graph partition of length t1 ending at the beginning of each sub-intervals of length t2.
+    Assuming t2_factor divides 1 to give an integer.
+    Say, t2_factor is 0.2 and t1_factor_of_t2 is 1.5 => t1_factor is 0.3 then, we will find the degree of all nodes in the following sub-graphs:
+    1. [0, 0.2]
+    2. [0.1, 0.4]
+    3. [0.3, 0.6]
+    4. [0.5, 0.8]
+    5. [0.7, 1.0]
+    Last interval will not be used.
+    """
+    edge_data = pd.read_csv(f'/home/ayush/DyGLib/processed_data/{dataset_name}/ml_{dataset_name}.csv')
+    ts = edge_data['ts'].tolist()
+    node1 = edge_data['u'].tolist()
+    node2 = edge_data['i'].tolist()
+    num_nodes = max(node1 + node2) + 1
+    edge_feats = torch.ones(len(node1)).tolist()
+    total_time = ts[-1] - ts[0]
+    t2 = 0.04
+    t1 = t1_factor_of_t2 * t2 * total_time 
+    t2 = t2_factor * total_time 
+    num_partitions_total = int(1/t2_factor)
+    p2_imp_times = [t2 * i for i in range(1, num_partitions_total+1)]
+    time_partitioned_node_degrees = []
+    # indices corresponding to:
+    p1 = 0  # start of the subgraph [t-t1, t)
+    p2 = 0  # end of the subgraph [t-t1, t)
+    old_deg = torch.zeros(num_nodes)              # corresponds to the `degree` of each node in the subgraph [t-t1-t2, t-t2)
+    
+    # Moving p3 from old timestamp to the next timestamp
+    with tqdm(total=len(ts)) as pbar:
+        for imp_time in range(len(p2_imp_times)):
+            while(p2 < len(ts) and ts[p2] < p2_imp_times[imp_time]):
+                # Since this edge is going to the old subgraph [t-t2, t), add to the old_deg
+                old_deg[node1[p2]] += edge_feats[p2]
+                old_deg[node2[p2]] += edge_feats[p2]
+                # Move the counter ahead
+                p2 += 1
+                pbar.update(1)
+        
+            while(ts[p1] < ts[p2]-t1):
+                # Since these edges are being removed from the old subgraph [t-t2, t), decrease old subgraph degree
+                old_deg[node1[p1]] -= edge_feats[p1]
+                old_deg[node2[p1]] -= edge_feats[p1]
+                # Move the counter ahead
+                p1 += 1
+            
+            time_partitioned_node_degrees.append(old_deg.clone().tolist())
+    
+    time_partitioned_node_degrees = torch.tensor(time_partitioned_node_degrees)
+    return total_time, time_partitioned_node_degrees

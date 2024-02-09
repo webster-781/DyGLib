@@ -13,7 +13,6 @@ ALL_DATASETS = ["SocialEvo", "uci", "Flights", "CanParl", "USLegis", "UNtrade", 
 ONE_FEAT_DATASETS = ["Flights", "CanParl", "USLegis", "UNtrade", "UNvote", "Contacts"]
 
 def calculate_correlation(old_deg, new_node_new_deg):
-  breakpoint()
   return float(torch.corrcoef(torch.cat((old_deg.unsqueeze(0), new_node_new_deg.unsqueeze(0)), dim = 0))[0, 1])
 
 def calculate_all_correlations(node1, node2, ts, num_nodes, total_time, edge_feats, t1_factor = 5, t2_factor = 5, wandb_run = None):

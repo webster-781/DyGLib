@@ -27,6 +27,7 @@ from utils.utils import (
     get_parameter_sizes,
     create_optimizer,
     set_wandb_metrics,
+    find_partition_node_degrees_for_new_node_init,
 )
 from utils.utils import get_neighbor_sampler, NegativeEdgeSampler
 from evaluate_models_utils import evaluate_model_link_prediction
@@ -36,11 +37,16 @@ from utils.EarlyStopping import EarlyStopping
 from utils.load_configs import get_link_prediction_args
 
 if __name__ == "__main__":
+    print(torch.cuda.is_available())
     warnings.filterwarnings("ignore")
     global_log_arr = []
     # get arguments
     args = get_link_prediction_args(is_evaluation=False)
-
+    
+    total_time, time_partitioned_node_degrees = find_partition_node_degrees_for_new_node_init(dataset_name=args.dataset_name, t1_factor_of_t2=args.t1_factor_of_t2, t2_factor=0.04)
+    if not args.use_init_method:
+        time_partitioned_node_degrees = None
+    
     # get data for training, validation and testing
     (
         node_raw_features,
@@ -154,7 +160,10 @@ if __name__ == "__main__":
                 "num_layers": args.num_layers,
                 "time_gap": args.time_gap,
                 "time_feat_dim": args.time_feat_dim,
-                "num_neighbors": args.num_neighbors
+                "num_neighbors": args.num_neighbors,
+                "use_init_method": args.use_init_method,
+                "t1_factor_of_t2": args.t1_factor_of_t2,
+                "take_log": args.take_log
             },
             group="DygLib",
         )
@@ -236,6 +245,9 @@ if __name__ == "__main__":
                 dst_node_mean_time_shift_dst=dst_node_mean_time_shift_dst,
                 dst_node_std_time_shift=dst_node_std_time_shift,
                 device=args.device,
+                time_partitioned_node_degrees = time_partitioned_node_degrees,
+                total_time = total_time,
+                take_log = args.take_log
             )
         elif args.model_name == "DecoLP":
             # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE

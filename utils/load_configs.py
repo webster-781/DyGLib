@@ -51,6 +51,9 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--load_best_configs', action='store_true', default=False, help='whether to load the best configurations')
     parser.add_argument('--use_wandb', type = str, default = 'no', help='do you want to track this run using wandb? If arg is `no`, then don`t track. Else, track using wandb and name the run `run_name_dataset`')
     parser.add_argument('--use_ROPe', action = 'store_true', help='Use ROPe embeddings for DecoLP')
+    parser.add_argument('--t1_factor_of_t2', type=float, default=1, help='t1 factor of t2 when t2 is 0.04 of total time')
+    parser.add_argument('--use_init_method', action = 'store_true', help='Use new init method')
+    parser.add_argument('--take_log', action = 'store_true', help='Use log of degree in new init method')
 
     try:
         args = parser.parse_args()
