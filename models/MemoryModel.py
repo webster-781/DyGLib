@@ -62,6 +62,10 @@ class MemoryModel(torch.nn.Module):
         self.message_dim = self.memory_dim + self.memory_dim + self.time_feat_dim + self.edge_feat_dim
 
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
+        self.emb_proj = nn.Sequential(
+            nn.Linear(self.memory_dim, self.memory_dim),
+            nn.ReLU(),
+        )
         
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
@@ -93,7 +97,7 @@ class MemoryModel(torch.nn.Module):
             raise ValueError(f'Not implemented error for model_name {self.model_name}!')
 
     def compute_src_dst_node_temporal_embeddings(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray,
-                                                 edge_ids: np.ndarray, edges_are_positive: bool = True, num_neighbors: int = 20):
+                                                edge_ids: np.ndarray, edges_are_positive: bool = True, num_neighbors: int = 20):
         """
         compute source and destination node temporal embeddings
         :param src_node_ids: ndarray, shape (batch_size, )
@@ -105,85 +109,86 @@ class MemoryModel(torch.nn.Module):
         :param num_neighbors: int, number of neighbors to sample for each node
         :return:
         """
-        # Tensor, shape (2 * batch_size, )
-        node_ids = np.concatenate([src_node_ids, dst_node_ids])
-
-        # we need to use self.get_updated_memory instead of self.update_memory based on positive_node_ids directly,
-        # because the graph attention embedding module in TGN needs to additionally access memory of neighbors.
-        # so we return all nodes' memory with shape (num_nodes, ) by using self.get_updated_memory
-        # updated_node_memories, Tensor, shape (num_nodes, memory_dim)
-        # updated_node_last_updated_times, Tensor, shape (num_nodes, )
-        updated_node_memories, updated_node_last_updated_times = self.get_updated_memories(node_ids=np.array(range(self.num_nodes)),
-                                                                                           node_raw_messages=self.memory_bank.node_raw_messages,
-                                                                                           node_interact_times=node_interact_times)
-        # compute the node temporal embeddings using the embedding module
-        if self.model_name == 'JODIE':
-            # compute differences between the time the memory of a node was last updated, and the time for which we want to compute the embedding of a node
-            # Tensor, shape (batch_size, )
-            src_node_time_intervals = torch.from_numpy(node_interact_times).float().to(self.device) - updated_node_last_updated_times[torch.from_numpy(src_node_ids)]
-            src_node_time_intervals = (src_node_time_intervals - self.src_node_mean_time_shift) / self.src_node_std_time_shift
-            # Tensor, shape (batch_size, )
-            dst_node_time_intervals = torch.from_numpy(node_interact_times).float().to(self.device) - updated_node_last_updated_times[torch.from_numpy(dst_node_ids)]
-            dst_node_time_intervals = (dst_node_time_intervals - self.dst_node_mean_time_shift_dst) / self.dst_node_std_time_shift
+        with torch.autograd.set_detect_anomaly(True):
             # Tensor, shape (2 * batch_size, )
-            node_time_intervals = torch.cat([src_node_time_intervals, dst_node_time_intervals], dim=0)
-            # Tensor, shape (2 * batch_size, memory_dim), which is equal to (2 * batch_size, node_feat_dim)
-            node_embeddings = self.embedding_module.compute_node_temporal_embeddings(node_memories=updated_node_memories,
-                                                                                     node_ids=node_ids,
-                                                                                     node_time_intervals=node_time_intervals)
-        elif self.model_name in ['TGN', 'DyRep']:
-            # Tensor, shape (2 * batch_size, node_feat_dim)
-            node_embeddings = self.embedding_module.compute_node_temporal_embeddings(node_memories=updated_node_memories,
-                                                                                     node_ids=node_ids,
-                                                                                     node_interact_times=np.concatenate([node_interact_times,
-                                                                                                                         node_interact_times]),
-                                                                                     current_layer_num=self.num_layers,
-                                                                                     num_neighbors=num_neighbors)
-        else:
-            raise ValueError(f'Not implemented error for model_name {self.model_name}!')
+            node_ids = np.concatenate([src_node_ids, dst_node_ids])
 
-        # two Tensors, with shape (batch_size, node_feat_dim)
-        src_node_embeddings, dst_node_embeddings = node_embeddings[:len(src_node_ids)], node_embeddings[len(src_node_ids): len(src_node_ids) + len(dst_node_ids)]
+            # we need to use self.get_updated_memory instead of self.update_memory based on positive_node_ids directly,
+            # because the graph attention embedding module in TGN needs to additionally access memory of neighbors.
+            # so we return all nodes' memory with shape (num_nodes, ) by using self.get_updated_memory
+            # updated_node_memories, Tensor, shape (num_nodes, memory_dim)
+            # updated_node_last_updated_times, Tensor, shape (num_nodes, )
+            updated_node_memories, updated_node_last_updated_times = self.get_updated_memories(node_ids=np.array(range(self.num_nodes)),
+                                                                                            node_raw_messages=self.memory_bank.node_raw_messages,
+                                                                                            node_interact_times=node_interact_times)
+            # compute the node temporal embeddings using the embedding module
+            if self.model_name == 'JODIE':
+                # compute differences between the time the memory of a node was last updated, and the time for which we want to compute the embedding of a node
+                # Tensor, shape (batch_size, )
+                src_node_time_intervals = torch.from_numpy(node_interact_times).float().to(self.device) - updated_node_last_updated_times[torch.from_numpy(src_node_ids)]
+                src_node_time_intervals = (src_node_time_intervals - self.src_node_mean_time_shift) / self.src_node_std_time_shift
+                # Tensor, shape (batch_size, )
+                dst_node_time_intervals = torch.from_numpy(node_interact_times).float().to(self.device) - updated_node_last_updated_times[torch.from_numpy(dst_node_ids)]
+                dst_node_time_intervals = (dst_node_time_intervals - self.dst_node_mean_time_shift_dst) / self.dst_node_std_time_shift
+                # Tensor, shape (2 * batch_size, )
+                node_time_intervals = torch.cat([src_node_time_intervals, dst_node_time_intervals], dim=0)
+                # Tensor, shape (2 * batch_size, memory_dim), which is equal to (2 * batch_size, node_feat_dim)
+                node_embeddings = self.embedding_module.compute_node_temporal_embeddings(node_memories=updated_node_memories,
+                                                                                        node_ids=node_ids,
+                                                                                        node_time_intervals=node_time_intervals)
+            elif self.model_name in ['TGN', 'DyRep']:
+                # Tensor, shape (2 * batch_size, node_feat_dim)
+                node_embeddings = self.embedding_module.compute_node_temporal_embeddings(node_memories=updated_node_memories,
+                                                                                        node_ids=node_ids,
+                                                                                        node_interact_times=np.concatenate([node_interact_times,
+                                                                                                                            node_interact_times]),
+                                                                                        current_layer_num=self.num_layers,
+                                                                                        num_neighbors=num_neighbors)
+            else:
+                raise ValueError(f'Not implemented error for model_name {self.model_name}!')
 
-        if edges_are_positive:
-            assert edge_ids is not None
-            # if the edges are positive, update the memories for source and destination nodes (since now we have new messages for them)
-            # nonzeros  = [i for i, message in self.memory_bank.node_raw_messages.items() if len(message) != 0]
-            # x = torch.any(torch.tensor([torch.any(torch.tensor(self.memory_bank.node_raw_messages[i][-1][0]) == torch.inf) for i in nonzeros])).item()
-            # print("\n lol:", end = " ")
-            # print(x)
-            # if x:
-            #     breakpoint()
+            # two Tensors, with shape (batch_size, node_feat_dim)
+            src_node_embeddings, dst_node_embeddings = node_embeddings[:len(src_node_ids)], node_embeddings[len(src_node_ids): len(src_node_ids) + len(dst_node_ids)]
+
+            if edges_are_positive:
+                assert edge_ids is not None
+                # if the edges are positive, update the memories for source and destination nodes (since now we have new messages for them)
+                # nonzeros  = [i for i, message in self.memory_bank.node_raw_messages.items() if len(message) != 0]
+                # x = torch.any(torch.tensor([torch.any(torch.tensor(self.memory_bank.node_raw_messages[i][-1][0]) == torch.inf) for i in nonzeros])).item()
+                # print("\n lol:", end = " ")
+                # print(x)
+                # if x:
+                #     breakpoint()
+                    
+                self.update_memories(node_ids=node_ids, node_raw_messages=self.memory_bank.node_raw_messages, node_interact_times = node_interact_times)
                 
-            self.update_memories(node_ids=node_ids, node_raw_messages=self.memory_bank.node_raw_messages, node_interact_times = node_interact_times)
-            
-            
-            
-            # clear raw messages for source and destination nodes since we have already updated the memory using them
-            self.memory_bank.clear_node_raw_messages(node_ids=node_ids)
+                
+                
+                # clear raw messages for source and destination nodes since we have already updated the memory using them
+                self.memory_bank.clear_node_raw_messages(node_ids=node_ids)
 
-            # compute new raw messages for source and destination nodes
-            unique_src_node_ids, new_src_node_raw_messages = self.compute_new_node_raw_messages(src_node_ids=src_node_ids,
-                                                                                                dst_node_ids=dst_node_ids,
-                                                                                                dst_node_embeddings=dst_node_embeddings,
-                                                                                                node_interact_times=node_interact_times,
-                                                                                                edge_ids=edge_ids)
-            unique_dst_node_ids, new_dst_node_raw_messages = self.compute_new_node_raw_messages(src_node_ids=dst_node_ids,
-                                                                                                dst_node_ids=src_node_ids,
-                                                                                                dst_node_embeddings=src_node_embeddings,
-                                                                                                node_interact_times=node_interact_times,
-                                                                                                edge_ids=edge_ids)
+                # compute new raw messages for source and destination nodes
+                unique_src_node_ids, new_src_node_raw_messages = self.compute_new_node_raw_messages(src_node_ids=src_node_ids,
+                                                                                                    dst_node_ids=dst_node_ids,
+                                                                                                    dst_node_embeddings=dst_node_embeddings,
+                                                                                                    node_interact_times=node_interact_times,
+                                                                                                    edge_ids=edge_ids)
+                unique_dst_node_ids, new_dst_node_raw_messages = self.compute_new_node_raw_messages(src_node_ids=dst_node_ids,
+                                                                                                    dst_node_ids=src_node_ids,
+                                                                                                    dst_node_embeddings=src_node_embeddings,
+                                                                                                    node_interact_times=node_interact_times,
+                                                                                                    edge_ids=edge_ids)
 
-            # store new raw messages for source and destination nodes
-            self.memory_bank.store_node_raw_messages(node_ids=unique_src_node_ids, new_node_raw_messages=new_src_node_raw_messages)
-            self.memory_bank.store_node_raw_messages(node_ids=unique_dst_node_ids, new_node_raw_messages=new_dst_node_raw_messages)
+                # store new raw messages for source and destination nodes
+                self.memory_bank.store_node_raw_messages(node_ids=unique_src_node_ids, new_node_raw_messages=new_src_node_raw_messages)
+                self.memory_bank.store_node_raw_messages(node_ids=unique_dst_node_ids, new_node_raw_messages=new_dst_node_raw_messages)
 
-        # DyRep does not use embedding module, which instead uses updated_node_memories based on previous raw messages and historical memories
-        if self.model_name == 'DyRep':
-            src_node_embeddings = updated_node_memories[torch.from_numpy(src_node_ids)]
-            dst_node_embeddings = updated_node_memories[torch.from_numpy(dst_node_ids)]
+            # DyRep does not use embedding module, which instead uses updated_node_memories based on previous raw messages and historical memories
+            if self.model_name == 'DyRep':
+                src_node_embeddings = updated_node_memories[torch.from_numpy(src_node_ids)]
+                dst_node_embeddings = updated_node_memories[torch.from_numpy(dst_node_ids)]
 
-        return src_node_embeddings, dst_node_embeddings
+            return src_node_embeddings, dst_node_embeddings
 
     def get_updated_memories(self, node_ids: np.ndarray, node_raw_messages: dict, node_interact_times):
         """
@@ -313,16 +318,21 @@ class MemoryModel(torch.nn.Module):
         if node_memories_ids.shape[0] == self.num_nodes:
             # get_updated_memories case
             use_node_memories = node_memories
+
         else:
             # update_memories case
             use_node_memories = self.memory_bank.node_memories.clone()
             if node_memories_ids.shape[0] > 0:
-                use_node_memories[node_memories_ids] = node_memories
-            
+                use_node_memories.scatter_(0, node_memories_ids.unsqueeze(1).expand(-1, use_node_memories.shape[1]), node_memories)
+        
+        # Learn a projection for embeddings
+        use_node_memories = self.emb_proj(use_node_memories)
+        
         if partition_num >= 0:
             new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
-            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            use_node_memories[new_node_ids] = new_init
+            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]].clone().detach()
+            mask_mat = self.memory_bank.is_node_seen.to(device = self.device) 
+            use_node_memories = use_node_memories*(mask_mat[:, None]) + new_init*(~mask_mat[:, None])
             # if torch.any(torch.isnan(new_init)).item():
             #     breakpoint()
             # if torch.any(new_init == torch.inf).item():
