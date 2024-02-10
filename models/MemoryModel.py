@@ -66,7 +66,6 @@ class MemoryModel(torch.nn.Module):
             nn.Linear(self.memory_dim, self.memory_dim),
             nn.ReLU(),
         )
-        
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
@@ -300,55 +299,54 @@ class MemoryModel(torch.nn.Module):
         node_ids: which node_ids are relevant
         node_memories: to update into and to calculate weighted average from
         """
-        node_memories_ids = torch.from_numpy(node_memories_ids)
-        node_ids = torch.from_numpy(node_ids).to(self.device)
-        
-        if self.time_partitioned_node_degrees is None:
-            return node_memories_ids.cpu().detach().numpy(), node_memories
-        
-        node_memories_ids = node_memories_ids.to(self.device)
-        num_partitions_total = self.time_partitioned_node_degrees.shape[0]
-        check_time = float(torch.min(torch.from_numpy(node_interact_times)))
-        partition_num = math.floor(check_time*num_partitions_total/self.total_time) - 1
-        weights = self.time_partitioned_node_degrees[partition_num].clone()
-        
-        if take_log:
-            weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
-        
-        if node_memories_ids.shape[0] == self.num_nodes:
-            # get_updated_memories case
-            use_node_memories = node_memories
-
-        else:
-            # update_memories case
-            use_node_memories = self.memory_bank.node_memories.clone()
-            if node_memories_ids.shape[0] > 0:
-                use_node_memories.scatter_(0, node_memories_ids.unsqueeze(1).expand(-1, use_node_memories.shape[1]), node_memories)
-        
-        # Learn a projection for embeddings
-        use_node_memories = self.emb_proj(use_node_memories)
-        
-        if partition_num >= 0:
-            new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
-            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]].clone().detach()
-            mask_mat = self.memory_bank.is_node_seen.to(device = self.device) 
-            use_node_memories = use_node_memories*(mask_mat[:, None]) + new_init*(~mask_mat[:, None])
-            # if torch.any(torch.isnan(new_init)).item():
-            #     breakpoint()
-            # if torch.any(new_init == torch.inf).item():
-            #     breakpoint()
-        else:
-            # first interval case
-            return node_memories_ids.cpu().detach().numpy(), node_memories
-        
-        if node_memories_ids.shape[0] == self.num_nodes:
-            return node_memories_ids.cpu().detach().numpy(), use_node_memories
-        else:
-            if node_memories_ids.shape[0] > 0:
-                node_ids_to_update = torch.cat((new_node_ids, node_memories_ids), dim = 0)
+        with torch.autograd.set_detect_anomaly(True):
+            node_memories_ids = torch.from_numpy(node_memories_ids)
+            node_ids = torch.from_numpy(node_ids).to(self.device)
+            
+            if self.time_partitioned_node_degrees is None:
+                return node_memories_ids.cpu().detach().numpy(), node_memories
+            
+            node_memories_ids = node_memories_ids.to(self.device)
+            num_partitions_total = self.time_partitioned_node_degrees.shape[0]
+            check_time = float(torch.min(torch.from_numpy(node_interact_times)))
+            partition_num = math.floor(check_time*num_partitions_total/self.total_time) - 1
+            weights = self.time_partitioned_node_degrees[partition_num].clone()
+            
+            if take_log:
+                weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
+            
+            if node_memories_ids.shape[0] == self.num_nodes:
+                # get_updated_memories case
+                use_node_memories = node_memories
             else:
-                node_ids_to_update = new_node_ids
-            return node_ids_to_update.cpu().detach().numpy(), use_node_memories[node_ids_to_update]
+                # update_memories case
+                use_node_memories = self.memory_bank.node_memories.clone()
+                if node_memories_ids.shape[0] > 0:
+                    use_node_memories[node_memories_ids] = node_memories
+            
+            use_node_memories = self.emb_proj(use_node_memories)
+            
+            if partition_num >= 0:
+                new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
+                new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
+                new_init_repeated = new_init.reshape(-1, 172).repeat(use_node_memories.shape[0], 1)
+                mask = torch.zeros(use_node_memories.shape[0]).to(self.device)
+                mask[new_node_ids] = 1
+
+                # Update memories using scatter_add
+                use_node_memories = use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
+            else:
+                # first interval case
+                return node_memories_ids.cpu().detach().numpy(), node_memories
+            
+            if node_memories_ids.shape[0] == self.num_nodes:
+                return node_memories_ids.cpu().detach().numpy(), use_node_memories
+            else:
+                if node_memories_ids.shape[0] > 0:
+                    node_ids_to_update = torch.cat((new_node_ids, node_memories_ids), dim = 0)
+                else:
+                    node_ids_to_update = new_node_ids
+                return node_ids_to_update.cpu().detach().numpy(), use_node_memories[node_ids_to_update]
 
 # Message-related Modules
 class MessageAggregator(nn.Module):

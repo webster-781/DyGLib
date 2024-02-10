@@ -169,7 +169,6 @@ if __name__ == "__main__":
         )
 
     set_wandb_metrics(wandb_run)
-
     for run in range(args.num_runs):
         set_random_seed(seed=run)
 
@@ -366,7 +365,7 @@ if __name__ == "__main__":
         )
 
         loss_func = nn.BCELoss()
-
+        wandb_run.watch(model, 50)
         for epoch in range(args.num_epochs):
             with torch.autograd.set_detect_anomaly(True):
                 model.train()
