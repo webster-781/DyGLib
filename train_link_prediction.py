@@ -166,6 +166,7 @@ if __name__ == "__main__":
                 "take_log": args.take_log
             },
             group="DygLib",
+            name = f"{args.model_name.lower()}-{args.dataset_name.lower()}-{args.use_wandb.lower()}"
         )
 
     set_wandb_metrics(wandb_run)
@@ -598,32 +599,32 @@ if __name__ == "__main__":
 
             wandb_log_dict = {}
             logger.info(
-                f'Epoch: {epoch + 1}, learning rate: {optimizer.param_groups[0]["lr"]}, train loss: {np.mean(train_losses):.4f}'
+                f'Epoch: {epoch + 1}, learning rate: {optimizer.param_groups[0]["lr"]}, train loss: {np.nanmean(train_losses):.4f}'
             )
-            wandb_log_dict["train_loss"] = np.mean(train_losses)
+            wandb_log_dict["train_loss"] = np.nanmean(train_losses)
             for metric_name in train_metrics[0].keys():
                 logger.info(
-                    f"train {metric_name}, {np.mean([train_metric[metric_name] for train_metric in train_metrics]):.4f}"
+                    f"train {metric_name}, {np.nanmean([train_metric[metric_name] for train_metric in train_metrics]):.4f}"
                 )
-                wandb_log_dict[f"train {metric_name}"] = np.mean(
+                wandb_log_dict[f"train {metric_name}"] = np.nanmean(
                     [train_metric[metric_name] for train_metric in train_metrics]
                 )
-            logger.info(f"validate loss: {np.mean(val_losses):.4f}")
-            wandb_log_dict["val_loss"] = np.mean(val_losses)
+            logger.info(f"validate loss: {np.nanmean(val_losses):.4f}")
+            wandb_log_dict["val_loss"] = np.nanmean(val_losses)
             for metric_name in val_metrics[0].keys():
                 logger.info(
-                    f"validate {metric_name}, {np.mean([val_metric[metric_name] for val_metric in val_metrics]):.4f}"
+                    f"validate {metric_name}, {np.nanmean([val_metric[metric_name] for val_metric in val_metrics]):.4f}"
                 )
-                wandb_log_dict[f"val {metric_name}"] = np.mean(
+                wandb_log_dict[f"val {metric_name}"] = np.nanmean(
                     [train_metric[metric_name] for train_metric in train_metrics]
                 )
-            logger.info(f"new node validate loss: {np.mean(new_node_val_losses):.4f}")
-            wandb_log_dict["new node val_loss"] = np.mean(new_node_val_losses)
+            logger.info(f"new node validate loss: {np.nanmean(new_node_val_losses):.4f}")
+            wandb_log_dict["new node val_loss"] = np.nanmean(new_node_val_losses)
             for metric_name in new_node_val_metrics[0].keys():
                 logger.info(
-                    f"new node validate {metric_name}, {np.mean([new_node_val_metric[metric_name] for new_node_val_metric in new_node_val_metrics]):.4f}"
+                    f"new node validate {metric_name}, {np.nanmean([new_node_val_metric[metric_name] for new_node_val_metric in new_node_val_metrics]):.4f}"
                 )
-                wandb_log_dict[f"new node val {metric_name}"] = np.mean(
+                wandb_log_dict[f"new node val {metric_name}"] = np.nanmean(
                     [
                         new_node_val_metric[metric_name]
                         for new_node_val_metric in new_node_val_metrics
@@ -668,22 +669,22 @@ if __name__ == "__main__":
                     # note that since model treats memory as parameters, we need to reload the memory to val_backup_memory_bank for saving models
                     model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
 
-                logger.info(f"test loss: {np.mean(test_losses):.4f}")
-                wandb_log_dict["test_loss"] = np.mean(test_losses)
+                logger.info(f"test loss: {np.nanmean(test_losses):.4f}")
+                wandb_log_dict["test_loss"] = np.nanmean(test_losses)
                 for metric_name in test_metrics[0].keys():
                     logger.info(
-                        f"test {metric_name}, {np.mean([test_metric[metric_name] for test_metric in test_metrics]):.4f}"
+                        f"test {metric_name}, {np.nanmean([test_metric[metric_name] for test_metric in test_metrics]):.4f}"
                     )
-                    wandb_log_dict[f"test {metric_name}"] = np.mean(
+                    wandb_log_dict[f"test {metric_name}"] = np.nanmean(
                         [test_metric[metric_name] for test_metric in test_metrics]
                     )
-                logger.info(f"new node test loss: {np.mean(new_node_test_losses):.4f}")
-                wandb_log_dict["new node test loss"] = np.mean(new_node_test_losses)
+                logger.info(f"new node test loss: {np.nanmean(new_node_test_losses):.4f}")
+                wandb_log_dict["new node test loss"] = np.nanmean(new_node_test_losses)
                 for metric_name in new_node_test_metrics[0].keys():
                     logger.info(
-                        f"new node test {metric_name}, {np.mean([new_node_test_metric[metric_name] for new_node_test_metric in new_node_test_metrics]):.4f}"
+                        f"new node test {metric_name}, {np.nanmean([new_node_test_metric[metric_name] for new_node_test_metric in new_node_test_metrics]):.4f}"
                     )
-                    wandb_log_dict[f"new node test {metric_name}"] = np.mean(
+                    wandb_log_dict[f"new node test {metric_name}"] = np.nanmean(
                         [
                             new_node_test_metric[metric_name]
                             for new_node_test_metric in new_node_test_metrics
@@ -698,7 +699,7 @@ if __name__ == "__main__":
                 val_metric_indicator.append(
                     (
                         metric_name,
-                        np.mean(
+                        np.nanmean(
                             [val_metric[metric_name] for val_metric in val_metrics]
                         ),
                         True,
@@ -781,17 +782,17 @@ if __name__ == "__main__":
         ) = ({}, {}, {}, {})
 
         if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP"]:
-            logger.info(f"validate loss: {np.mean(val_losses):.4f}")
+            logger.info(f"validate loss: {np.nanmean(val_losses):.4f}")
             for metric_name in val_metrics[0].keys():
-                average_val_metric = np.mean(
+                average_val_metric = np.nanmean(
                     [val_metric[metric_name] for val_metric in val_metrics]
                 )
                 logger.info(f"validate {metric_name}, {average_val_metric:.4f}")
                 val_metric_dict[metric_name] = average_val_metric
 
-            logger.info(f"new node validate loss: {np.mean(new_node_val_losses):.4f}")
+            logger.info(f"new node validate loss: {np.nanmean(new_node_val_losses):.4f}")
             for metric_name in new_node_val_metrics[0].keys():
-                average_new_node_val_metric = np.mean(
+                average_new_node_val_metric = np.nanmean(
                     [
                         new_node_val_metric[metric_name]
                         for new_node_val_metric in new_node_val_metrics
@@ -802,17 +803,17 @@ if __name__ == "__main__":
                 )
                 new_node_val_metric_dict[metric_name] = average_new_node_val_metric
 
-        logger.info(f"test loss: {np.mean(test_losses):.4f}")
+        logger.info(f"test loss: {np.nanmean(test_losses):.4f}")
         for metric_name in test_metrics[0].keys():
-            average_test_metric = np.mean(
+            average_test_metric = np.nanmean(
                 [test_metric[metric_name] for test_metric in test_metrics]
             )
             logger.info(f"test {metric_name}, {average_test_metric:.4f}")
             test_metric_dict[metric_name] = average_test_metric
 
-        logger.info(f"new node test loss: {np.mean(new_node_test_losses):.4f}")
+        logger.info(f"new node test loss: {np.nanmean(new_node_test_losses):.4f}")
         for metric_name in new_node_test_metrics[0].keys():
-            average_new_node_test_metric = np.mean(
+            average_new_node_test_metric = np.nanmean(
                 [
                     new_node_test_metric[metric_name]
                     for new_node_test_metric in new_node_test_metrics
@@ -889,7 +890,7 @@ if __name__ == "__main__":
                 f"validate {metric_name}, {[val_metric_single_run[metric_name] for val_metric_single_run in val_metric_all_runs]}"
             )
             logger.info(
-                f"average validate {metric_name}, {np.mean([val_metric_single_run[metric_name] for val_metric_single_run in val_metric_all_runs]):.4f} "
+                f"average validate {metric_name}, {np.nanmean([val_metric_single_run[metric_name] for val_metric_single_run in val_metric_all_runs]):.4f} "
                 f"± {np.std([val_metric_single_run[metric_name] for val_metric_single_run in val_metric_all_runs], ddof=1):.4f}"
             )
 
@@ -898,7 +899,7 @@ if __name__ == "__main__":
                 f"new node validate {metric_name}, {[new_node_val_metric_single_run[metric_name] for new_node_val_metric_single_run in new_node_val_metric_all_runs]}"
             )
             logger.info(
-                f"average new node validate {metric_name}, {np.mean([new_node_val_metric_single_run[metric_name] for new_node_val_metric_single_run in new_node_val_metric_all_runs]):.4f} "
+                f"average new node validate {metric_name}, {np.nanmean([new_node_val_metric_single_run[metric_name] for new_node_val_metric_single_run in new_node_val_metric_all_runs]):.4f} "
                 f"± {np.std([new_node_val_metric_single_run[metric_name] for new_node_val_metric_single_run in new_node_val_metric_all_runs], ddof=1):.4f}"
             )
 
@@ -907,7 +908,7 @@ if __name__ == "__main__":
             f"test {metric_name}, {[test_metric_single_run[metric_name] for test_metric_single_run in test_metric_all_runs]}"
         )
         logger.info(
-            f"average test {metric_name}, {np.mean([test_metric_single_run[metric_name] for test_metric_single_run in test_metric_all_runs]):.4f} "
+            f"average test {metric_name}, {np.nanmean([test_metric_single_run[metric_name] for test_metric_single_run in test_metric_all_runs]):.4f} "
             f"± {np.std([test_metric_single_run[metric_name] for test_metric_single_run in test_metric_all_runs], ddof=1):.4f}"
         )
 
@@ -916,7 +917,7 @@ if __name__ == "__main__":
             f"new node test {metric_name}, {[new_node_test_metric_single_run[metric_name] for new_node_test_metric_single_run in new_node_test_metric_all_runs]}"
         )
         logger.info(
-            f"average new node test {metric_name}, {np.mean([new_node_test_metric_single_run[metric_name] for new_node_test_metric_single_run in new_node_test_metric_all_runs]):.4f} "
+            f"average new node test {metric_name}, {np.nanmean([new_node_test_metric_single_run[metric_name] for new_node_test_metric_single_run in new_node_test_metric_all_runs]):.4f} "
             f"± {np.std([new_node_test_metric_single_run[metric_name] for new_node_test_metric_single_run in new_node_test_metric_all_runs], ddof=1):.4f}"
         )
 

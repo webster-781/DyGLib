@@ -46,12 +46,15 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
         # store evaluate losses and metrics
         evaluate_losses, evaluate_metrics = [], []
         evaluate_idx_data_loader_tqdm = tqdm(evaluate_idx_data_loader, ncols=120)
+        firsts = evaluate_data.firsts
         for batch_idx, evaluate_data_indices in enumerate(evaluate_idx_data_loader_tqdm):
             evaluate_data_indices = evaluate_data_indices.numpy()
             batch_src_node_ids, batch_dst_node_ids, batch_node_interact_times, batch_edge_ids = \
                 evaluate_data.src_node_ids[evaluate_data_indices],  evaluate_data.dst_node_ids[evaluate_data_indices], \
                 evaluate_data.node_interact_times[evaluate_data_indices], evaluate_data.edge_ids[evaluate_data_indices]
-
+            flag = evaluate_data.first_masks is not None
+            if flag:
+                batch_first_masks = evaluate_data.first_masks[:, evaluate_data_indices]
             if evaluate_neg_edge_sampler.negative_sample_strategy != 'random':
                 batch_neg_src_node_ids, batch_neg_dst_node_ids = evaluate_neg_edge_sampler.sample(size=len(batch_src_node_ids),
                                                                                                   batch_src_node_ids=batch_src_node_ids,
@@ -140,14 +143,28 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
             positive_probabilities = model[1](input_1=batch_src_node_embeddings, input_2=batch_dst_node_embeddings).squeeze(dim=-1).sigmoid()
             negative_probabilities = model[1](input_1=batch_neg_src_node_embeddings, input_2=batch_neg_dst_node_embeddings).squeeze(dim=-1).sigmoid()
 
+            metrics_dict = {}
+            if flag:
+                for first, first_mask in zip(firsts, batch_first_masks): 
+                    positive_probabilities_first = positive_probabilities.clone()[first_mask]
+                    negative_probabilities_first = negative_probabilities.clone()[first_mask]
+                    predicts = torch.cat([positive_probabilities_first, negative_probabilities_first], dim=0)
+                    labels = torch.cat([torch.ones_like(positive_probabilities_first), torch.zeros_like(negative_probabilities_first)], dim=0)
+                    if predicts.shape[0] > 0:   
+                        first_results = get_link_prediction_metrics(predicts=predicts, labels=labels)
+                        metrics_dict[f'first_{first}_average_precision'], metrics_dict[f'first_{first}_roc_auc'] = first_results['average_precision'], first_results['roc_auc']
+                    else:
+                        metrics_dict[f'first_{first}_average_precision'], metrics_dict[f'first_{first}_roc_auc'] =  float('nan'), float('nan')
+
             predicts = torch.cat([positive_probabilities, negative_probabilities], dim=0)
             labels = torch.cat([torch.ones_like(positive_probabilities), torch.zeros_like(negative_probabilities)], dim=0)
 
             loss = loss_func(input=predicts, target=labels)
 
             evaluate_losses.append(loss.item())
-
-            evaluate_metrics.append(get_link_prediction_metrics(predicts=predicts, labels=labels))
+            metrics = get_link_prediction_metrics(predicts = predicts, labels = labels)
+            metrics_dict['average_precision'], metrics_dict['roc_auc'] = metrics['average_precision'], metrics['roc_auc']
+            evaluate_metrics.append(metrics_dict)
 
             evaluate_idx_data_loader_tqdm.set_description(f'evaluate for the {batch_idx + 1}-th batch, evaluate loss: {loss.item()}')
 
