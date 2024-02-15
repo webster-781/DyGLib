@@ -326,7 +326,7 @@ class MemoryModel(torch.nn.Module):
             new_init_srcs = (weights_srcs.view(self.srcs[1] - self.srcs[0], 1) * use_node_memories_srcs).sum(dim=0) / weights_srcs.sum()
             new_init_dsts = (weights_dsts.view(self.dsts[1] - self.dsts[0], 1) * use_node_memories_dsts).sum(dim=0) / weights_dsts.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            if self.invert_bipartite:
+            if not self.invert_bipartite:
                 new_init_repeated_srcs = new_init_srcs.reshape(-1, 172).repeat(use_node_memories_srcs.shape[0], 1)
                 new_init_repeated_dsts = new_init_dsts.reshape(-1, 172).repeat(use_node_memories_dsts.shape[0], 1)
                 new_init_repeated = torch.cat((new_init_repeated_srcs, new_init_repeated_dsts), dim = 0)
