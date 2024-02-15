@@ -201,8 +201,10 @@ def get_link_prediction_data(dataset_name: str, val_ratio: float, test_ratio: fl
     print("The new node test dataset has {} interactions, involving {} different nodes".format(
         new_node_test_data.num_interactions, new_node_test_data.num_unique_nodes))
     print("{} nodes were used for the inductive testing, i.e. are never seen during training".format(len(new_test_node_set)))
-
-    return node_raw_features, edge_raw_features, full_data, train_data, val_data, test_data, new_node_val_data, new_node_test_data
+    
+    srcs = [0, max(src_node_ids)+1]
+    dsts = [min(dst_node_ids), max(dst_node_ids)+1]
+    return node_raw_features, edge_raw_features, full_data, train_data, val_data, test_data, new_node_val_data, new_node_test_data, srcs, dsts
 
 
 def get_node_classification_data(dataset_name: str, val_ratio: float, test_ratio: float):

@@ -11,7 +11,7 @@ from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention
 class MemoryModel(torch.nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, total_time: float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
+                 time_feat_dim: int, total_time: float, srcs: list, dsts:list, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
                  device: str = 'cpu', take_log: bool = False):
@@ -48,6 +48,8 @@ class MemoryModel(torch.nn.Module):
         self.dst_node_mean_time_shift_dst = dst_node_mean_time_shift_dst
         self.dst_node_std_time_shift = dst_node_std_time_shift
         self.take_log = take_log
+        self.srcs = srcs
+        self.dsts = dsts
         if time_partitioned_node_degrees is not None:
             self.time_partitioned_node_degrees = time_partitioned_node_degrees.to(self.device)
         else:
@@ -64,7 +66,7 @@ class MemoryModel(torch.nn.Module):
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
         self.emb_proj = nn.Sequential(
             nn.Linear(self.memory_dim, self.memory_dim),
-            nn.ReLU(),
+            # nn.ReLU(),
         )
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
@@ -300,9 +302,11 @@ class MemoryModel(torch.nn.Module):
         check_time = float(torch.min(torch.from_numpy(node_interact_times)))
         partition_num = math.floor(check_time*num_partitions_total/self.total_time) - 1
         weights = self.time_partitioned_node_degrees[partition_num].clone()
-        
+        weights_srcs = weights[self.srcs[0]: self.srcs[1]]
+        weights_dsts = weights[self.dsts[0]: self.dsts[1]]
         if take_log:
-            weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
+            weights_srcs = torch.log(torch.max(torch.ones(1).to(weights_srcs.device), weights_srcs))
+            weights_dsts = torch.log(torch.max(torch.ones(1).to(weights_dsts.device), weights_dsts))
         
         if node_memories_ids.shape[0] == self.num_nodes:
             # get_updated_memories case
@@ -314,11 +318,16 @@ class MemoryModel(torch.nn.Module):
                 use_node_memories[node_memories_ids] = node_memories
         
         use_node_memories = self.emb_proj(use_node_memories)
+        use_node_memories_srcs = use_node_memories[self.srcs[0]:self.srcs[1]]
+        use_node_memories_dsts = use_node_memories[self.dsts[0]:self.dsts[1]]
         
         if partition_num >= 0:
-            new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
+            new_init_srcs = (weights_srcs.view(self.srcs[1] - self.srcs[0], 1) * use_node_memories_srcs).sum(dim=0) / weights_srcs.sum()
+            new_init_dsts = (weights_dsts.view(self.dsts[1] - self.dsts[0], 1) * use_node_memories_dsts).sum(dim=0) / weights_dsts.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            new_init_repeated = new_init.reshape(-1, 172).repeat(use_node_memories.shape[0], 1)
+            new_init_repeated_srcs = new_init_srcs.reshape(-1, 172).repeat(use_node_memories_srcs.shape[0], 1)
+            new_init_repeated_dsts = new_init_dsts.reshape(-1, 172).repeat(use_node_memories_dsts.shape[0], 1)
+            new_init_repeated = torch.cat((new_init_repeated_srcs, new_init_repeated_dsts), dim = 0)
             mask = torch.zeros(use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
 

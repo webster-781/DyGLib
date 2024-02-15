@@ -57,6 +57,8 @@ if __name__ == "__main__":
         test_data,
         new_node_val_data,
         new_node_test_data,
+        srcs,
+        dsts
     ) = get_link_prediction_data(
         dataset_name=args.dataset_name,
         val_ratio=args.val_ratio,
@@ -247,7 +249,9 @@ if __name__ == "__main__":
                 device=args.device,
                 time_partitioned_node_degrees = time_partitioned_node_degrees,
                 total_time = total_time,
-                take_log = args.take_log
+                take_log = args.take_log,
+                srcs = srcs,
+                dsts = dsts
             )
         elif args.model_name == "DecoLP":
             # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE
