@@ -367,7 +367,16 @@ if __name__ == "__main__":
 
         loss_func = nn.BCELoss()
         wandb_run.watch(model, 50)
+        # Freeze the params for embedding projection
+        for params in model[0].emb_proj[0].parameters():
+            params.requires_grad = False
+
         for epoch in range(args.num_epochs):
+            # Unfreeze the params for embedding projection after certain epochs
+            if epoch == 100:
+                for params in model[0].emb_proj[0].parameters():
+                    params.requires_grad = False
+            
             model.train()
             if args.model_name in [
                 "DyRep",

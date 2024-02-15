@@ -64,8 +64,12 @@ class MemoryModel(torch.nn.Module):
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
         self.emb_proj = nn.Sequential(
             nn.Linear(self.memory_dim, self.memory_dim),
-            nn.ReLU(),
+            # nn.ReLU(),
         )
+
+        self.emb_proj[0].weight.data = torch.eye(self.memory_dim)
+        self.emb_proj[0].bias.data.fill_(0)
+        
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
