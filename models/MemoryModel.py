@@ -14,7 +14,7 @@ class MemoryModel(torch.nn.Module):
                  time_feat_dim: int, total_time: float, srcs: list, dsts:list, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
-                 device: str = 'cpu', take_log: bool = False):
+                 device: str = 'cpu', take_log: bool = False, invert_bipartite: bool = False):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -50,6 +50,7 @@ class MemoryModel(torch.nn.Module):
         self.take_log = take_log
         self.srcs = srcs
         self.dsts = dsts
+        self.invert_bipartite = invert_bipartite
         if time_partitioned_node_degrees is not None:
             self.time_partitioned_node_degrees = time_partitioned_node_degrees.to(self.device)
         else:
@@ -325,9 +326,14 @@ class MemoryModel(torch.nn.Module):
             new_init_srcs = (weights_srcs.view(self.srcs[1] - self.srcs[0], 1) * use_node_memories_srcs).sum(dim=0) / weights_srcs.sum()
             new_init_dsts = (weights_dsts.view(self.dsts[1] - self.dsts[0], 1) * use_node_memories_dsts).sum(dim=0) / weights_dsts.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            new_init_repeated_srcs = new_init_srcs.reshape(-1, 172).repeat(use_node_memories_srcs.shape[0], 1)
-            new_init_repeated_dsts = new_init_dsts.reshape(-1, 172).repeat(use_node_memories_dsts.shape[0], 1)
-            new_init_repeated = torch.cat((new_init_repeated_srcs, new_init_repeated_dsts), dim = 0)
+            if self.invert_bipartite:
+                new_init_repeated_srcs = new_init_srcs.reshape(-1, 172).repeat(use_node_memories_srcs.shape[0], 1)
+                new_init_repeated_dsts = new_init_dsts.reshape(-1, 172).repeat(use_node_memories_dsts.shape[0], 1)
+                new_init_repeated = torch.cat((new_init_repeated_srcs, new_init_repeated_dsts), dim = 0)
+            else:
+                new_init_repeated_dsts = new_init_srcs.reshape(-1, 172).repeat(use_node_memories_dsts.shape[0], 1)
+                new_init_repeated_srcs = new_init_dsts.reshape(-1, 172).repeat(use_node_memories_srcs.shape[0], 1)
+                new_init_repeated = torch.cat((new_init_repeated_srcs, new_init_repeated_dsts), dim = 0)
             mask = torch.zeros(use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
 

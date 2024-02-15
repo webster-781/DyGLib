@@ -251,7 +251,8 @@ if __name__ == "__main__":
                 total_time = total_time,
                 take_log = args.take_log,
                 srcs = srcs,
-                dsts = dsts
+                dsts = dsts,
+                invert_bipartite = args.invert_bipartite
             )
         elif args.model_name == "DecoLP":
             # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE

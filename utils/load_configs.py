@@ -55,6 +55,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--use_init_method', action = 'store_true', help='Use new init method')
     parser.add_argument('--take_log', action = 'store_true', help='Use log of degree in new init method')
     parser.add_argument('--emb_proj', action = 'store_true', help='Use embedding projection before weighted average')
+    parser.add_argument('--invert_bipartite', action = 'store_true', help='Use inverted embedding(src for dst and vice versa) for weighted average')
 
     try:
         args = parser.parse_args()
