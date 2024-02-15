@@ -2,6 +2,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import random
 import pandas as pd
+from tqdm import tqdm
 
 
 class CustomizedDataset(Dataset):
@@ -45,7 +46,7 @@ def get_idx_data_loader(indices_list: list, batch_size: int, shuffle: bool):
 
 class Data:
 
-    def __init__(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray, edge_ids: np.ndarray, labels: np.ndarray):
+    def __init__(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray, edge_ids: np.ndarray, labels: np.ndarray, firsts = None, first_masks = None):
         """
         Data object to store the nodes interaction information.
         :param src_node_ids: ndarray
@@ -62,9 +63,35 @@ class Data:
         self.num_interactions = len(src_node_ids)
         self.unique_node_ids = set(src_node_ids) | set(dst_node_ids)
         self.num_unique_nodes = len(self.unique_node_ids)
+        self.firsts = firsts
+        self.first_masks = first_masks
 
+def get_first_masks(new_test_node_set, src_node_ids, dst_node_ids, train_mask, val_mask, test_mask, firsts = [1, 3, 10]):
+    first_masks = [np.zeros(len(src_node_ids), dtype = bool) for _ in firsts]
+    nums = [0 for _ in range(max(src_node_ids.tolist() + dst_node_ids.tolist()) + 1)]
+    for idx in tqdm(range(len(src_node_ids))):
+        # If the edge is used in training(new node edges have been removed here)
+        if train_mask[idx] or val_mask[idx] or test_mask[idx]:
+            node1 = src_node_ids[idx]
+            node2 = dst_node_ids[idx]
+            # If node 1 is a new node
+            if node1 in new_test_node_set:
+                for first_num, first_mask in zip(firsts, first_masks):
+                    # if current interaction number for this node is less than the first_num, then register this interaction to that mask
+                    if nums[node1] < first_num:
+                        first_mask[idx] = True
+                
+            # If node 2 is a new node
+            if node2 in new_test_node_set:
+                for first_num, first_mask in zip(firsts, first_masks):
+                    # if current interaction number for this node is less than the first_num, then register this interaction to that mask
+                    if nums[node2] < first_num:
+                        first_mask[idx] = True
+            nums[node1] += 1
+            nums[node2] += 1
+    return first_masks
 
-def get_link_prediction_data(dataset_name: str, val_ratio: float, test_ratio: float):
+def get_link_prediction_data(dataset_name: str, val_ratio: float, test_ratio: float, firsts = [1, 3, 10]):
     """
     generate data for link prediction task (inductive & transductive settings)
     :param dataset_name: str, dataset name
@@ -150,15 +177,18 @@ def get_link_prediction_data(dataset_name: str, val_ratio: float, test_ratio: fl
     test_data = Data(src_node_ids=src_node_ids[test_mask], dst_node_ids=dst_node_ids[test_mask],
                      node_interact_times=node_interact_times[test_mask], edge_ids=edge_ids[test_mask], labels=labels[test_mask])
 
+    first_masks = get_first_masks(new_test_node_set, src_node_ids, dst_node_ids, train_mask, val_mask, test_mask, firsts)
+    first_masks = np.array([mask.tolist() for mask in first_masks], dtype = bool)
+
     # validation and test with edges that at least has one new node (not in training set)
     new_node_val_data = Data(src_node_ids=src_node_ids[new_node_val_mask], dst_node_ids=dst_node_ids[new_node_val_mask],
                              node_interact_times=node_interact_times[new_node_val_mask],
-                             edge_ids=edge_ids[new_node_val_mask], labels=labels[new_node_val_mask])
+                             edge_ids=edge_ids[new_node_val_mask], labels=labels[new_node_val_mask], firsts = firsts, first_masks = first_masks[:, new_node_val_mask])
 
     new_node_test_data = Data(src_node_ids=src_node_ids[new_node_test_mask], dst_node_ids=dst_node_ids[new_node_test_mask],
                               node_interact_times=node_interact_times[new_node_test_mask],
-                              edge_ids=edge_ids[new_node_test_mask], labels=labels[new_node_test_mask])
-
+                              edge_ids=edge_ids[new_node_test_mask], labels=labels[new_node_test_mask], firsts= firsts, first_masks = first_masks[:, new_node_test_mask])
+    
     print("The dataset has {} interactions, involving {} different nodes".format(full_data.num_interactions, full_data.num_unique_nodes))
     print("The training dataset has {} interactions, involving {} different nodes".format(
         train_data.num_interactions, train_data.num_unique_nodes))

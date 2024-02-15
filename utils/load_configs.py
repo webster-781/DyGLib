@@ -54,6 +54,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--t1_factor_of_t2', type=float, default=1, help='t1 factor of t2 when t2 is 0.04 of total time')
     parser.add_argument('--use_init_method', action = 'store_true', help='Use new init method')
     parser.add_argument('--take_log', action = 'store_true', help='Use log of degree in new init method')
+    parser.add_argument('--emb_proj', action = 'store_true', help='Use embedding projection before weighted average')
 
     try:
         args = parser.parse_args()
@@ -67,9 +68,6 @@ def get_link_prediction_args(is_evaluation: bool = False):
 
     if args.load_best_configs:
         load_link_prediction_best_configs(args=args)
-
-    if args.use_wandb != 'no':
-        args.use_wandb = f'{args.use_wandb}_{args.dataset_name}_{args.sample_neighbor_strategy}'
         
     return args
 
