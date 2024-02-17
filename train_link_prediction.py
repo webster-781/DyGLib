@@ -375,7 +375,7 @@ if __name__ == "__main__":
             # Unfreeze the params for embedding projection after certain epochs
             if epoch == 100:
                 for params in model[0].emb_proj[0].parameters():
-                    params.requires_grad = False
+                    params.requires_grad = True
             
             model.train()
             if args.model_name in [
