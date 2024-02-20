@@ -99,7 +99,7 @@ class MemoryModel(torch.nn.Module):
             raise ValueError(f'Not implemented error for model_name {self.model_name}!')
 
     def compute_src_dst_node_temporal_embeddings(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray,
-                                                edge_ids: np.ndarray, edges_are_positive: bool = True, num_neighbors: int = 20):
+                                                edge_ids: np.ndarray, edges_are_positive: bool = True, num_neighbors: int = 20, log_dict = None):
         """
         compute source and destination node temporal embeddings
         :param src_node_ids: ndarray, shape (batch_size, )
@@ -121,7 +121,7 @@ class MemoryModel(torch.nn.Module):
         # updated_node_last_updated_times, Tensor, shape (num_nodes, )
         updated_node_memories, updated_node_last_updated_times = self.get_updated_memories(node_ids=np.array(range(self.num_nodes)),
                                                                                         node_raw_messages=self.memory_bank.node_raw_messages,
-                                                                                        node_interact_times=node_interact_times)
+                                                                                        node_interact_times=node_interact_times, log_dict = log_dict)
         # compute the node temporal embeddings using the embedding module
         if self.model_name == 'JODIE':
             # compute differences between the time the memory of a node was last updated, and the time for which we want to compute the embedding of a node
@@ -184,7 +184,7 @@ class MemoryModel(torch.nn.Module):
 
         return src_node_embeddings, dst_node_embeddings
 
-    def get_updated_memories(self, node_ids: np.ndarray, node_raw_messages: dict, node_interact_times):
+    def get_updated_memories(self, node_ids: np.ndarray, node_raw_messages: dict, node_interact_times, log_dict):
         """
         get the updated memories based on node_ids and node_raw_messages (just for computation), but not update the memories
         :param node_ids: ndarray, shape (num_nodes, )
@@ -205,7 +205,7 @@ class MemoryModel(torch.nn.Module):
                                                                                                           unique_node_messages=unique_node_messages,
                                                                                                           unique_node_timestamps=unique_node_timestamps)
 
-        _, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, take_log = self.take_log)
+        _, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, log_dict = log_dict, take_log = self.take_log)
 
         return updated_node_memories, updated_node_last_updated_times
 
@@ -228,10 +228,11 @@ class MemoryModel(torch.nn.Module):
         updated_node_memories = self.memory_updater.update_memories(unique_node_ids=unique_node_ids, unique_node_messages=unique_node_messages,
                                             unique_node_timestamps=unique_node_timestamps)
         
-        node_ids_to_update, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = unique_node_ids, node_interact_times=node_interact_times)
+        node_ids_to_update, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = unique_node_ids, node_interact_times=node_interact_times, log_dict=None)
         
         # update memories for nodes in unique_node_ids
         self.memory_bank.set_memories(node_ids=node_ids_to_update, updated_node_memories=updated_node_memories)
+        # self.memory_bank.set_memories(node_ids=unique_node_ids, updated_node_memories=updated_node_memories)
 
     def compute_new_node_raw_messages(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, dst_node_embeddings: torch.Tensor,
                                       node_interact_times: np.ndarray, edge_ids: np.ndarray):
@@ -286,7 +287,7 @@ class MemoryModel(torch.nn.Module):
             assert self.embedding_module.neighbor_sampler.seed is not None
             self.embedding_module.neighbor_sampler.reset_random_state()
     
-    def get_init_node_memory_from_degree(self, node_ids, node_memories, node_memories_ids, node_interact_times, take_log = False):
+    def get_init_node_memory_from_degree(self, node_ids, node_memories, node_memories_ids, node_interact_times, log_dict, take_log = False):
         """
         Updates the unseen nodes' embeddings to have a weighted average of embeddings of highly interacting nodes.
         node_ids: which node_ids are relevant
@@ -336,7 +337,9 @@ class MemoryModel(torch.nn.Module):
                 new_init_repeated = torch.cat((new_init_repeated_srcs, new_init_repeated_dsts), dim = 0)
             mask = torch.zeros(use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
-
+            if log_dict:
+                log_dict['new_init_mean'] = torch.mean(new_init_repeated)
+                log_dict['new_init_std'] = torch.std(new_init_repeated)
             # Update memories using scatter_add
             use_node_memories = use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
         else:

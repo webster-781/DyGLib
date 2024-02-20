@@ -393,6 +393,7 @@ if __name__ == "__main__":
             train_losses, train_metrics = [], []
             train_idx_data_loader_tqdm = tqdm(train_idx_data_loader, ncols=120)
             for batch_idx, train_data_indices in enumerate(train_idx_data_loader_tqdm):
+                wandb_log_dict = {}
                 train_data_indices = train_data_indices.numpy()
                 (
                     batch_src_node_ids,
@@ -413,6 +414,8 @@ if __name__ == "__main__":
 
                 # we need to compute for positive and negative edges respectively, because the new sampling strategy (for evaluation) allows the negative source nodes to be
                 # different from the source nodes, this is different from previous works that just replace destination nodes with negative destination nodes
+                wandb_log_dict['all_emb_mean'] = torch.mean(model[0].memory_bank.node_memories)
+                wandb_log_dict['all_emb_std'] = torch.std(model[0].memory_bank.node_memories)
                 if args.model_name in ["TGAT", "CAWN", "TCL"]:
                     # get temporal embedding of source and destination nodes
                     # two Tensors, with shape (batch_size, node_feat_dim)
@@ -451,6 +454,7 @@ if __name__ == "__main__":
                         edge_ids=None,
                         edges_are_positive=False,
                         num_neighbors=args.num_neighbors,
+                        log_dict = wandb_log_dict
                     )
 
                     # get temporal embedding of source and destination nodes
@@ -464,6 +468,7 @@ if __name__ == "__main__":
                         edge_ids=batch_edge_ids,
                         edges_are_positive=True,
                         num_neighbors=args.num_neighbors,
+                        log_dict = wandb_log_dict
                     )
                 elif args.model_name in ["GraphMixer"]:
                     # get temporal embedding of source and destination nodes
@@ -601,8 +606,6 @@ if __name__ == "__main__":
                 # reload validation memory bank for testing nodes or saving models
                 # note that since model treats memory as parameters, we need to reload the memory to val_backup_memory_bank for saving models
                 model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
-
-            wandb_log_dict = {}
             logger.info(
                 f'Epoch: {epoch + 1}, learning rate: {optimizer.param_groups[0]["lr"]}, train loss: {np.nanmean(train_losses):.4f}'
             )
