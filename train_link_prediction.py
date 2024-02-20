@@ -388,6 +388,7 @@ if __name__ == "__main__":
             train_losses, train_metrics = [], []
             train_idx_data_loader_tqdm = tqdm(train_idx_data_loader, ncols=120)
             for batch_idx, train_data_indices in enumerate(train_idx_data_loader_tqdm):
+                wandb_log_dict = {}
                 train_data_indices = train_data_indices.numpy()
                 (
                     batch_src_node_ids,
@@ -432,6 +433,9 @@ if __name__ == "__main__":
                         num_neighbors=args.num_neighbors,
                     )
                 elif args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                    wandb_log_dict['all_emb_mean'] = torch.mean(model[0].memory_bank.node_memories)
+                    wandb_log_dict['all_emb_std'] = torch.std(model[0].memory_bank.node_memories)
+
                     # note that negative nodes do not change the memories while the positive nodes change the memories,
                     # we need to first compute the embeddings of negative nodes for memory-based models
                     # get temporal embedding of negative source and negative destination nodes
@@ -446,6 +450,7 @@ if __name__ == "__main__":
                         edge_ids=None,
                         edges_are_positive=False,
                         num_neighbors=args.num_neighbors,
+                        log_dict = wandb_log_dict
                     )
 
                     # get temporal embedding of source and destination nodes
@@ -459,6 +464,7 @@ if __name__ == "__main__":
                         edge_ids=batch_edge_ids,
                         edges_are_positive=True,
                         num_neighbors=args.num_neighbors,
+                        log_dict = wandb_log_dict
                     )
                 elif args.model_name in ["GraphMixer"]:
                     # get temporal embedding of source and destination nodes
