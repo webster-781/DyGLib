@@ -70,7 +70,7 @@ class MemoryModel(torch.nn.Module):
             self.time_transformation_for_init = TimeInitTransformExp(total_time)
             self.tt = self.time_transformation_for_init
         if self.init_weights == 'time-linear':
-            self.time_transformation_for_init = TimeInitTransformLinear()
+            self.time_transformation_for_init = TimeInitTransformLinear(total_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 

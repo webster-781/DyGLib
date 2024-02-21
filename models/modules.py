@@ -270,7 +270,7 @@ class TimeInitTransformExp(nn.Module):
         super(TimeInitTransformExp, self).__init__()
         self.lin = nn.Linear(1, 1, bias = False)
         self.lin.weight.data.fill_(1)
-        self.lin.weight.requires_grad = False
+        self.lin.weight.requires_grad = True
         self.total_time = total_time
     
     def forward(self, time_diffs, check_time):
@@ -285,12 +285,19 @@ class TimeInitTransformExp(nn.Module):
         return output
 
 class TimeInitTransformLinear(nn.Module):
-    def __init__(self):
+    def __init__(self, total_time):
         super(TimeInitTransformLinear, self).__init__()
-        self.lin = nn.Linear(1, 1, bias = False)
-        self.lin.data.fill_(1)
+        self.lin = nn.Linear(1, 1, bias = True)
+        self.lin.weight.data.fill_(-1)
+        self.total_time = total_time
+        self.lin.bias.data.fill_(0)
     
-    def forward(self, time_diffs):
+    def forward(self, time_diffs, check_time):
         # time_diffs - tensor(n, k)
         n, k = time_diffs.shape
-        return torch.sum(self.lin(time_diffs.reshape(n, k, 1)).reshape(n, k), dim = 1)
+        mask = torch.argwhere(time_diffs - check_time != 0)
+        lin_out = self.lin(time_diffs.reshape(n, k, 1)/self.total_time).reshape(n, k)
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        zeros[mask] = lin_out[mask]
+        output = torch.sum(zeros, dim = 1)
+        return output
