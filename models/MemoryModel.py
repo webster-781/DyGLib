@@ -4,8 +4,8 @@ import torch.nn as nn
 from collections import defaultdict
 import math
 
-from utils.utils import NeighborSampler
-from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention
+from utils.utils import NeighborSampler, vectorized_update_mem_2d
+from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear
 
 
 class MemoryModel(torch.nn.Module):
@@ -14,7 +14,7 @@ class MemoryModel(torch.nn.Module):
                  time_feat_dim: int, total_time: float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
-                 device: str = 'cpu', take_log: bool = False):
+                 device: str = 'cpu', init_weights: str = 'degree'):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -47,7 +47,7 @@ class MemoryModel(torch.nn.Module):
         self.src_node_std_time_shift = src_node_std_time_shift
         self.dst_node_mean_time_shift_dst = dst_node_mean_time_shift_dst
         self.dst_node_std_time_shift = dst_node_std_time_shift
-        self.take_log = take_log
+        self.init_weights = init_weights
         if time_partitioned_node_degrees is not None:
             self.time_partitioned_node_degrees = time_partitioned_node_degrees.to(self.device)
         else:
@@ -66,6 +66,11 @@ class MemoryModel(torch.nn.Module):
             nn.Linear(self.memory_dim, self.memory_dim),
             nn.ReLU(),
         )
+        if self.init_weights == 'time-exp':
+            self.time_transformation_for_init = TimeInitTransformExp(total_time)
+            self.tt = self.time_transformation_for_init
+        if self.init_weights == 'time-linear':
+            self.time_transformation_for_init = TimeInitTransformLinear()
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
@@ -202,7 +207,7 @@ class MemoryModel(torch.nn.Module):
                                                                                                           unique_node_messages=unique_node_messages,
                                                                                                           unique_node_timestamps=unique_node_timestamps)
 
-        _, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, take_log = self.take_log, log_dict = log_dict)
+        _, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, log_dict = log_dict)
 
         return updated_node_memories, updated_node_last_updated_times
 
@@ -283,7 +288,7 @@ class MemoryModel(torch.nn.Module):
             assert self.embedding_module.neighbor_sampler.seed is not None
             self.embedding_module.neighbor_sampler.reset_random_state()
     
-    def get_init_node_memory_from_degree(self, node_ids, node_memories, node_memories_ids, node_interact_times, log_dict, take_log = False):
+    def get_init_node_memory_from_degree(self, node_ids, node_memories, node_memories_ids, node_interact_times, log_dict):
         """
         Updates the unseen nodes' embeddings to have a weighted average of embeddings of highly interacting nodes.
         node_ids: which node_ids are relevant
@@ -296,14 +301,27 @@ class MemoryModel(torch.nn.Module):
             return node_memories_ids.cpu().detach().numpy(), node_memories
         
         node_memories_ids = node_memories_ids.to(self.device)
-        num_partitions_total = self.time_partitioned_node_degrees.shape[0]
-        check_time = float(torch.min(torch.from_numpy(node_interact_times)))
-        partition_num = math.floor(check_time*num_partitions_total/self.total_time) - 1
-        weights = self.time_partitioned_node_degrees[partition_num].clone()
+        weights = None
+        # If initialisation weight is degree or log degree
+        if self.init_weights == 'degree' or self.init_weights == 'log-degree':
+            num_partitions_total = self.time_partitioned_node_degrees.shape[0]
+            check_time = float(torch.min(torch.from_numpy(node_interact_times)))
+            partition_num = math.floor(check_time*num_partitions_total/self.total_time) - 1
+            weights = self.time_partitioned_node_degrees[partition_num].clone()
+            if self.init_weights == 'log-degree':
+                weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
         
-        if take_log:
-            weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
-        
+        # If initialisation weight is expontential decay or linear decay
+        if self.init_weights == 'time-exp' or self.init_weights == 'time-linear':
+            last_k_times = self.memory_bank.node_last_k_updated_times
+            curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
+            if self.init_weights == 'time-exp':
+                if log_dict:
+                    log_dict['alpha'] = self.time_transformation_for_init.lin.weight.data.item()
+                # else:
+                    # breakpoint()
+                weights = self.time_transformation_for_init(last_k_times - curr_time, -1 -curr_time )
+            
         if node_memories_ids.shape[0] == self.num_nodes:
             # get_updated_memories case
             use_node_memories = node_memories
@@ -315,12 +333,13 @@ class MemoryModel(torch.nn.Module):
         
         use_node_memories = self.emb_proj(use_node_memories)
         
-        if partition_num >= 0:
+        if weights is not None and torch.any(weights != 0):
             new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
             new_init_repeated = new_init.reshape(-1, 172).repeat(use_node_memories.shape[0], 1)
             mask = torch.zeros(use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
+            # breakpoint()
             if log_dict:
                 log_dict['new_init_mean'] = torch.mean(new_init_repeated)
                 log_dict['new_init_std'] = torch.std(new_init_repeated)
@@ -379,7 +398,7 @@ class MessageAggregator(nn.Module):
 # Memory-related Modules
 class MemoryBank(nn.Module):
 
-    def __init__(self, num_nodes: int, memory_dim: int, device: str):
+    def __init__(self, num_nodes: int, memory_dim: int, device: str, k = 20):
         """
         Memory bank, store node memories, node last updated times and node raw messages.
         :param num_nodes: int, number of nodes
@@ -397,6 +416,7 @@ class MemoryBank(nn.Module):
         # dictionary of list, {node_id: list of tuples}, each tuple is (message, time) with type (Tensor shape (message_dim, ), a scalar)
         self.node_raw_messages = defaultdict(list)
         self.is_node_seen = torch.zeros(size = (self.num_nodes, ), dtype = torch.bool, requires_grad = False).to(self.device)
+        self.node_last_k_updated_times = nn.Parameter(float('-inf') * torch.ones(self.num_nodes, k), requires_grad=False)
 
         self.__init_memory_bank__()
 
@@ -409,6 +429,7 @@ class MemoryBank(nn.Module):
         self.node_last_updated_times.data.zero_()
         self.node_raw_messages = defaultdict(list)
         self.is_node_seen.zero_()
+        self.node_last_k_updated_times.fill_(-1)
 
     def get_memories(self, node_ids: np.ndarray):
         """
@@ -437,7 +458,7 @@ class MemoryBank(nn.Module):
         for node_id, node_raw_messages in self.node_raw_messages.items():
             cloned_node_raw_messages[node_id] = [(node_raw_message[0].clone(), node_raw_message[1].copy()) for node_raw_message in node_raw_messages]
 
-        return self.node_memories.data.clone(), self.node_last_updated_times.data.clone(), cloned_node_raw_messages, self.is_node_seen.clone()
+        return self.node_memories.data.clone(), self.node_last_updated_times.data.clone(), cloned_node_raw_messages, self.is_node_seen.clone(), self.node_last_k_updated_times.clone()
 
     def reload_memory_bank(self, backup_memory_bank: tuple):
         """
@@ -445,7 +466,7 @@ class MemoryBank(nn.Module):
         :param backup_memory_bank: tuple (node_memories, node_last_updated_times, node_raw_messages)
         :return:
         """
-        self.node_memories.data, self.node_last_updated_times.data, self.is_node_seen = backup_memory_bank[0].clone(), backup_memory_bank[1].clone(), backup_memory_bank[3].clone()
+        self.node_memories.data, self.node_last_updated_times.data, self.is_node_seen, self.node_last_k_updated_times.data = backup_memory_bank[0].clone(), backup_memory_bank[1].clone(), backup_memory_bank[3].clone(), backup_memory_bank[4].clone()
 
         self.node_raw_messages = defaultdict(list)
         for node_id, node_raw_messages in backup_memory_bank[2].items():
@@ -536,6 +557,9 @@ class MemoryUpdater(nn.Module):
         
         # update last updated times for nodes in unique_node_ids
         self.memory_bank.node_last_updated_times[torch.from_numpy(unique_node_ids)] = torch.from_numpy(unique_node_timestamps).float().to(unique_node_messages.device)
+        
+        # Update the last_k_updated_times with the new times, used for init calculation later
+        self.memory_bank.node_last_k_updated_times[torch.from_numpy(unique_node_ids)] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[torch.from_numpy(unique_node_ids)], torch.from_numpy(unique_node_timestamps).float().to(unique_node_messages.device))
         
         return updated_node_memories
 
