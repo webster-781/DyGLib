@@ -14,7 +14,7 @@ class MemoryModel(torch.nn.Module):
                  time_feat_dim: int, total_time: float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
-                 device: str = 'cpu', init_weights: str = 'degree', use_init_method = False):
+                 device: str = 'cpu', init_weights: str = 'degree', use_init_method = False, min_time = 0):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -41,6 +41,7 @@ class MemoryModel(torch.nn.Module):
         self.time_feat_dim = time_feat_dim
         self.num_layers = num_layers
         self.num_heads = num_heads
+        self.min_time = min_time
         self.dropout = dropout
         self.device = device
         self.src_node_mean_time_shift = src_node_mean_time_shift
@@ -308,7 +309,7 @@ class MemoryModel(torch.nn.Module):
         if self.init_weights == 'degree' or self.init_weights == 'log-degree':
             num_partitions_total = self.time_partitioned_node_degrees.shape[0]
             check_time = float(torch.min(torch.from_numpy(node_interact_times)))
-            partition_num = math.floor(check_time*num_partitions_total/self.total_time) - 1
+            partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.total_time) - 1
             weights = self.time_partitioned_node_degrees[partition_num].clone()
             if self.init_weights == 'log-degree':
                 weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))

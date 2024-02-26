@@ -43,7 +43,7 @@ if __name__ == "__main__":
     # get arguments
     args = get_link_prediction_args(is_evaluation=False)
     
-    total_time, time_partitioned_node_degrees = find_partition_node_degrees_for_new_node_init(dataset_name=args.dataset_name, t1_factor_of_t2=args.t1_factor_of_t2, t2_factor=0.04)
+    min_time, total_time, time_partitioned_node_degrees = find_partition_node_degrees_for_new_node_init(dataset_name=args.dataset_name, t1_factor_of_t2=args.t1_factor_of_t2, t2_factor=0.04)
     if not args.use_init_method:
         time_partitioned_node_degrees = None
     
@@ -249,6 +249,7 @@ if __name__ == "__main__":
                     device=args.device,
                     time_partitioned_node_degrees = time_partitioned_node_degrees,
                     total_time = total_time,
+                    min_time= min_time,
                     init_weights = args.init_weights,
                     use_init_method = args.use_init_method
                 )
