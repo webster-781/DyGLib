@@ -14,7 +14,7 @@ class MemoryModel(torch.nn.Module):
                  time_feat_dim: int, total_time: float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
-                 device: str = 'cpu', init_weights: str = 'degree'):
+                 device: str = 'cpu', init_weights: str = 'degree', use_init_method = False):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -47,6 +47,7 @@ class MemoryModel(torch.nn.Module):
         self.src_node_std_time_shift = src_node_std_time_shift
         self.dst_node_mean_time_shift_dst = dst_node_mean_time_shift_dst
         self.dst_node_std_time_shift = dst_node_std_time_shift
+        self.use_init_method = use_init_method
         self.init_weights = init_weights
         if time_partitioned_node_degrees is not None:
             self.time_partitioned_node_degrees = time_partitioned_node_degrees.to(self.device)
@@ -207,7 +208,8 @@ class MemoryModel(torch.nn.Module):
                                                                                                           unique_node_messages=unique_node_messages,
                                                                                                           unique_node_timestamps=unique_node_timestamps)
 
-        _, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, log_dict = log_dict)
+        if self.use_init_method:
+            _, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, log_dict = log_dict)
 
         return updated_node_memories, updated_node_last_updated_times
 
@@ -229,11 +231,11 @@ class MemoryModel(torch.nn.Module):
         # update the memories with the aggregated messages
         updated_node_memories = self.memory_updater.update_memories(unique_node_ids=unique_node_ids, unique_node_messages=unique_node_messages,
                                             unique_node_timestamps=unique_node_timestamps)
-        
-        node_ids_to_update, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = unique_node_ids, node_interact_times=node_interact_times, log_dict = None)
+        if self.use_init_method:
+            unique_node_ids, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = unique_node_ids, node_interact_times=node_interact_times, log_dict = None)
         
         # update memories for nodes in unique_node_ids
-        self.memory_bank.set_memories(node_ids=node_ids_to_update, updated_node_memories=updated_node_memories)
+        self.memory_bank.set_memories(node_ids=unique_node_ids, updated_node_memories=updated_node_memories)
 
     def compute_new_node_raw_messages(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, dst_node_embeddings: torch.Tensor,
                                       node_interact_times: np.ndarray, edge_ids: np.ndarray):
