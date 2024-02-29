@@ -883,7 +883,6 @@ def find_partition_node_degrees_for_new_node_init(dataset_name: str, t1_factor_o
     old_deg = torch.zeros(num_nodes)              # corresponds to the `degree` of each node in the subgraph [t-t1-t2, t-t2)
     
     # Moving p3 from old timestamp to the next timestamp
-    breakpoint()
     with tqdm(total=len(ts)) as pbar:
         for imp_time in range(len(p2_imp_times)):
             while(p2 < len(ts) and ts[p2] < p2_imp_times[imp_time]):
@@ -904,7 +903,6 @@ def find_partition_node_degrees_for_new_node_init(dataset_name: str, t1_factor_o
             time_partitioned_node_degrees.append(old_deg.clone().tolist())
     
     time_partitioned_node_degrees = torch.tensor(time_partitioned_node_degrees)
-    breakpoint()
     return min_time, total_time, time_partitioned_node_degrees
 
 def first_inf_indices(tensor):

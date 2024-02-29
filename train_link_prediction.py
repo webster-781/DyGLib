@@ -36,6 +36,29 @@ from utils.DataLoader import get_idx_data_loader, get_link_prediction_data
 from utils.EarlyStopping import EarlyStopping
 from utils.load_configs import get_link_prediction_args
 
+track_columns = ['new node test average_precision',
+ 'train roc_auc',
+ 'new node val first_3_roc_auc',
+ 'new node test first_3_roc_auc',
+ 'new node test first_3_average_precision',
+ 'new node val average_precision',
+ 'new node val first_1_average_precision',
+ 'new node test first_1_average_precision',
+ 'new node test first_1_roc_auc',
+ 'new node test first_10_roc_auc',
+ 'new node val first_3_average_precision',
+ 'val average_precision',
+ 'val roc_auc',
+ 'new node val roc_auc',
+ 'new node val first_10_average_precision',
+ 'new node test roc_auc',
+ 'train average_precision',
+ 'test roc_auc',
+ 'new node val first_1_roc_auc',
+ 'new node val first_10_roc_auc',
+ 'test average_precision',
+ 'new node test first_10_average_precision']
+
 if __name__ == "__main__":
     print(torch.cuda.is_available())
     warnings.filterwarnings("ignore")
@@ -629,7 +652,7 @@ if __name__ == "__main__":
                         f"validate {metric_name}, {np.nanmean([val_metric[metric_name] for val_metric in val_metrics]):.4f}"
                     )
                     wandb_log_dict[f"val {metric_name}"] = np.nanmean(
-                        [train_metric[metric_name] for train_metric in train_metrics]
+                        [val_metric[metric_name] for val_metric in val_metrics]
                     )
                 logger.info(f"new node validate loss: {np.nanmean(new_node_val_losses):.4f}")
                 wandb_log_dict["new node val_loss"] = np.nanmean(new_node_val_losses)
@@ -891,6 +914,26 @@ if __name__ == "__main__":
             )
             with open(save_result_path, "w") as file:
                 file.write(result_json)
+            
+            # UPDATE WANDB_SUMMARY
+            # Find epoch with best avg precision
+            val_key = 'val average_precision'
+            hist = wandb_run.history(samples = 200, keys = [val_key])[val_key]
+            best_epoch_num_test = np.argmax(hist[9::10])
+            best_epoch_num = np.argmax(hist)
+            print(best_epoch_num)
+            summ = {}
+            for key in track_columns:
+                hist = wandb_run.history(samples = 200, keys = [key])[key]
+                print(f"From {wandb_run.summary[key]} to ", end ="")
+                if 'test' in key:
+                    wandb_run.summary[key] = hist[best_epoch_num_test]
+                    print(f"{wandb_run.summary[key]}")
+                else:
+                    wandb_run.summary[key] = hist[best_epoch_num]
+                    print(f"{wandb_run.summary[key]}")
+                summ[key] = wandb_run.summary[key]
+            wandb_run.summary.update(summ)
             wandb_run.save(save_result_path)
             wandb_run.finish()
 
