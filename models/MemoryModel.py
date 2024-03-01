@@ -420,7 +420,8 @@ class MemoryBank(nn.Module):
         self.node_raw_messages = defaultdict(list)
         self.is_node_seen = torch.zeros(size = (self.num_nodes, ), dtype = torch.bool, requires_grad = False).to(self.device)
         self.node_last_k_updated_times = nn.Parameter(float('-inf') * torch.ones(self.num_nodes, k), requires_grad=False)
-
+        self.node_interact_counts = torch.zeros(size = (self.num_nodes, ), dtype = torch.int64, requires_grad=False).to(self.device)
+        
         self.__init_memory_bank__()
 
     def __init_memory_bank__(self):
@@ -433,6 +434,7 @@ class MemoryBank(nn.Module):
         self.node_raw_messages = defaultdict(list)
         self.is_node_seen.zero_()
         self.node_last_k_updated_times.fill_(-1)
+        self.node_interact_counts.zero_()
 
     def get_memories(self, node_ids: np.ndarray):
         """
@@ -461,7 +463,7 @@ class MemoryBank(nn.Module):
         for node_id, node_raw_messages in self.node_raw_messages.items():
             cloned_node_raw_messages[node_id] = [(node_raw_message[0].clone(), node_raw_message[1].copy()) for node_raw_message in node_raw_messages]
 
-        return self.node_memories.data.clone(), self.node_last_updated_times.data.clone(), cloned_node_raw_messages, self.is_node_seen.clone(), self.node_last_k_updated_times.clone()
+        return self.node_memories.data.clone(), self.node_last_updated_times.data.clone(), cloned_node_raw_messages, self.is_node_seen.clone(), self.node_last_k_updated_times.clone(), self.node_interact_counts.clone()
 
     def reload_memory_bank(self, backup_memory_bank: tuple):
         """
@@ -469,7 +471,7 @@ class MemoryBank(nn.Module):
         :param backup_memory_bank: tuple (node_memories, node_last_updated_times, node_raw_messages)
         :return:
         """
-        self.node_memories.data, self.node_last_updated_times.data, self.is_node_seen, self.node_last_k_updated_times.data = backup_memory_bank[0].clone(), backup_memory_bank[1].clone(), backup_memory_bank[3].clone(), backup_memory_bank[4].clone()
+        self.node_memories.data, self.node_last_updated_times.data, self.is_node_seen, self.node_last_k_updated_times.data, self.node_interact_counts = backup_memory_bank[0].clone(), backup_memory_bank[1].clone(), backup_memory_bank[3].clone(), backup_memory_bank[4].clone(), backup_memory_bank[5].clone()
 
         self.node_raw_messages = defaultdict(list)
         for node_id, node_raw_messages in backup_memory_bank[2].items():
@@ -500,6 +502,7 @@ class MemoryBank(nn.Module):
         """
         for node_id in node_ids:
             self.is_node_seen[node_id] = True
+            self.node_interact_counts[node_id] += 1
             self.node_raw_messages[node_id].extend(new_node_raw_messages[node_id])
 
     def clear_node_raw_messages(self, node_ids: np.ndarray):

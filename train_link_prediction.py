@@ -28,6 +28,7 @@ from utils.utils import (
     create_optimizer,
     set_wandb_metrics,
     find_partition_node_degrees_for_new_node_init,
+    get_wandb_histogram
 )
 from utils.utils import get_neighbor_sampler, NegativeEdgeSampler
 from evaluate_models_utils import evaluate_model_link_prediction
@@ -57,7 +58,13 @@ track_columns = ['new node test average_precision',
  'new node val first_1_roc_auc',
  'new node val first_10_roc_auc',
  'test average_precision',
- 'new node test first_10_average_precision']
+ 'new node test first_10_average_precision',
+ 'train_acc_hist',
+ 'val_acc_hist',
+ 'new node val_acc_hist',
+ 'test_acc_hist',
+ 'new node test_acc_hist',
+ ]
 
 if __name__ == "__main__":
     print(torch.cuda.is_available())
@@ -66,7 +73,7 @@ if __name__ == "__main__":
     # get arguments
     args = get_link_prediction_args(is_evaluation=False)
     
-    min_time, total_time, time_partitioned_node_degrees = find_partition_node_degrees_for_new_node_init(dataset_name=args.dataset_name, t1_factor_of_t2=args.t1_factor_of_t2, t2_factor=0.04)
+    min_time, total_time, num_nodes, time_partitioned_node_degrees = find_partition_node_degrees_for_new_node_init(dataset_name=args.dataset_name, t1_factor_of_t2=args.t1_factor_of_t2, t2_factor=0.04)
     if not args.use_init_method:
         time_partitioned_node_degrees = None
     
@@ -162,6 +169,7 @@ if __name__ == "__main__":
     if args.use_wandb == "no":
         wandb_run = mock.Mock()
     else:
+        run_name = f"{args.model_name.lower()}-{args.dataset_name.lower()}-{args.use_wandb.lower()}"
         wandb_run = wandb.init(
             entity="fb-graph-proj",
             project="fb-graph-proj-dyglib",
@@ -190,7 +198,7 @@ if __name__ == "__main__":
                 "clip_time_transformation": args.clip
             },
             group="DygLib",
-            name = f"{args.model_name.lower()}-{args.dataset_name.lower()}-{args.use_wandb.lower()}"
+            name = run_name
         )
 
     set_wandb_metrics(wandb_run)
@@ -395,6 +403,8 @@ if __name__ == "__main__":
             loss_func = nn.BCELoss()
             wandb_run.watch(model, 50)
             for epoch in range(args.num_epochs):
+                # For histogram tracking of metrics wrt the count of number of interactions of nodes
+                pos_corr, neg_corr, pos_total, neg_total = torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device)
                 model.train()
                 if args.model_name in [
                     "DyRep",
@@ -462,7 +472,7 @@ if __name__ == "__main__":
                     elif args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
                         wandb_log_dict['all_emb_mean'] = torch.mean(model[0].memory_bank.node_memories)
                         wandb_log_dict['all_emb_std'] = torch.std(model[0].memory_bank.node_memories)
-
+                        
                         # note that negative nodes do not change the memories while the positive nodes change the memories,
                         # we need to first compute the embeddings of negative nodes for memory-based models
                         # get temporal embedding of negative source and negative destination nodes
@@ -493,6 +503,7 @@ if __name__ == "__main__":
                             num_neighbors=args.num_neighbors,
                             log_dict = wandb_log_dict
                         )
+                        
                     elif args.model_name in ["GraphMixer"]:
                         # get temporal embedding of source and destination nodes
                         # two Tensors, with shape (batch_size, node_feat_dim)
@@ -578,6 +589,26 @@ if __name__ == "__main__":
                         get_link_prediction_metrics(predicts=predicts, labels=labels)
                     )
                     
+                    # Tracking average precision metric wrt number of interaction of nodes
+                    
+                    # Find out the counts of all nodes which used for prediction
+                    pos_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids], model[0].memory_bank.node_interact_counts[batch_dst_node_ids]), dim = 0)
+                    neg_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids], model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids]), dim = 0)
+                    # Add 1 to each index for `total` examples counting.
+                    pos_total.scatter_add_(0, pos_interact_counts, torch.ones_like(pos_interact_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
+                    neg_total.scatter_add_(0, neg_interact_counts, torch.ones_like(neg_interact_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
+                    
+                    # Find out the counts of all nodes which gave correct predictions
+                    pos_corr_intrs = torch.argwhere(positive_probabilities > 0.5).reshape(-1)
+                    neg_corr_intrs = torch.argwhere(negative_probabilities <= 0.5).reshape(-1)
+                    if len(pos_corr_intrs) > 0:
+                        pos_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids[pos_corr_intrs.cpu()]], model[0].memory_bank.node_interact_counts[batch_dst_node_ids[pos_corr_intrs.cpu()]]))
+                        pos_corr.scatter_add_(0, pos_interact_corr_counts, torch.ones_like(pos_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
+                    if len(neg_corr_intrs) > 0:
+                        neg_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids[neg_corr_intrs.cpu()]], model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids[neg_corr_intrs.cpu()]]))
+                        neg_corr.scatter_add_(0, neg_interact_corr_counts, torch.ones_like(neg_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
+                    # Add 1 to each index for `corr` examples counting.
+                    
                     optimizer.zero_grad()
                     loss.backward()
                     # torch.nn.utils.clip_grad_norm_(model.parameters(), 1e-2)
@@ -593,12 +624,12 @@ if __name__ == "__main__":
                     if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
                         # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time
                         model[0].memory_bank.detach_memory_bank()
-
+                
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
                     # backup memory bank after training so it can be used for new validation nodes
                     train_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
 
-                val_losses, val_metrics = evaluate_model_link_prediction(
+                val_losses, val_metrics, val_hist = evaluate_model_link_prediction(
                     model_name=args.model_name,
                     model=model,
                     neighbor_sampler=full_neighbor_sampler,
@@ -608,6 +639,7 @@ if __name__ == "__main__":
                     loss_func=loss_func,
                     num_neighbors=args.num_neighbors,
                     time_gap=args.time_gap,
+                    num_nodes=num_nodes
                 )
 
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
@@ -617,7 +649,7 @@ if __name__ == "__main__":
                     # reload training memory bank for new validation nodes
                     model[0].memory_bank.reload_memory_bank(train_backup_memory_bank)
 
-                new_node_val_losses, new_node_val_metrics = evaluate_model_link_prediction(
+                new_node_val_losses, new_node_val_metrics, new_node_val_hist = evaluate_model_link_prediction(
                     model_name=args.model_name,
                     model=model,
                     neighbor_sampler=full_neighbor_sampler,
@@ -629,6 +661,14 @@ if __name__ == "__main__":
                     time_gap=args.time_gap,
                 )
 
+                if epoch < 20 or (epoch + 1) % 5:
+                    train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
+                    wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
+                    val_histogram = get_wandb_histogram(val_hist)
+                    wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
+                    new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
+                    wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
+                
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
                     # reload validation memory bank for testing nodes or saving models
                     # note that since model treats memory as parameters, we need to reload the memory to val_backup_memory_bank for saving models
@@ -669,7 +709,7 @@ if __name__ == "__main__":
 
                 # perform testing once after test_interval_epochs
                 if (epoch + 1) % args.test_interval_epochs == 0:
-                    test_losses, test_metrics = evaluate_model_link_prediction(
+                    test_losses, test_metrics, test_hist = evaluate_model_link_prediction(
                         model_name=args.model_name,
                         model=model,
                         neighbor_sampler=full_neighbor_sampler,
@@ -688,6 +728,7 @@ if __name__ == "__main__":
                     (
                         new_node_test_losses,
                         new_node_test_metrics,
+                        new_node_test_hist
                     ) = evaluate_model_link_prediction(
                         model_name=args.model_name,
                         model=model,
@@ -699,6 +740,11 @@ if __name__ == "__main__":
                         num_neighbors=args.num_neighbors,
                         time_gap=args.time_gap,
                     )
+                    
+                    test_histogram = get_wandb_histogram(test_hist)
+                    wandb_log_dict[f'test_acc_hist'] = wandb.Histogram(np_histogram=test_histogram)
+                    new_node_test_histogram = get_wandb_histogram(new_node_test_hist)
+                    wandb_log_dict[f'new node test_acc_hist'] = wandb.Histogram(np_histogram=new_node_test_histogram)
 
                     if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
                         # reload validation memory bank for testing nodes or saving models
@@ -914,9 +960,14 @@ if __name__ == "__main__":
             )
             with open(save_result_path, "w") as file:
                 file.write(result_json)
+            wandb_run.save(save_result_path)
+            run_id = wandb_run.id
+            wandb_run.finish()
             
             # UPDATE WANDB_SUMMARY
             # Find epoch with best avg precision
+            api = wandb.Api()
+            wandb_run = api.run(f"/fb-graph-proj/fb-graph-proj-dyglib/runs/{run_id}")
             val_key = 'val average_precision'
             hist = wandb_run.history(samples = 200, keys = [val_key])[val_key]
             best_epoch_num_test = np.argmax(hist[9::10])
@@ -934,8 +985,6 @@ if __name__ == "__main__":
                     print(f"{wandb_run.summary[key]}")
                 summ[key] = wandb_run.summary[key]
             wandb_run.summary.update(summ)
-            wandb_run.save(save_result_path)
-            wandb_run.finish()
 
     # store the average metrics at the log of the last run
     logger.info(f"metrics over {args.num_runs} runs:")

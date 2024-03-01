@@ -903,7 +903,7 @@ def find_partition_node_degrees_for_new_node_init(dataset_name: str, t1_factor_o
             time_partitioned_node_degrees.append(old_deg.clone().tolist())
     
     time_partitioned_node_degrees = torch.tensor(time_partitioned_node_degrees)
-    return min_time, total_time, time_partitioned_node_degrees
+    return min_time, total_time, num_nodes, time_partitioned_node_degrees
 
 def first_inf_indices(tensor):
     """
@@ -978,3 +978,28 @@ def vectorized_update_mem_2d(
     mem = torch.where(insertion_mask, update.unsqueeze(1), mem)
 
     return mem
+
+def get_wandb_histogram(hist):
+    [pos_corr, neg_corr, pos_total, neg_total] = hist
+    print("***** CALCULATING HISTOGRAM *****")
+    max_deg = max(torch.max(torch.nonzero(pos_total)), torch.max(torch.nonzero(pos_total))) + 1
+    accs = torch.zeros(max_deg)
+    n_buckets = (max_deg//5 + 1)
+    for bucket in range(n_buckets):
+        corr = sum([pos_corr[deg] + neg_corr[deg] for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5))])
+        total = sum([pos_total[deg] + neg_total[deg] for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5))])
+        for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5)):
+            accs[deg] = corr/total
+    accs = smooth_tensor(accs).cpu().numpy()
+    bins = torch.arange(0, max_deg+1).cpu().numpy()
+    print("***** CALCULATED HISTOGRAM *****")
+    return accs, bins
+
+def smooth_tensor(x):
+    nan_indices = x.isnan().argwhere().reshape(-1)
+    new_x = x.clone()
+    for idx in nan_indices:
+        start_index = max(0, idx.item() - 10)
+        end_index = min(len(x), idx.item() + 11)
+        new_x[idx] = torch.nanmean(x[start_index:end_index])
+    return new_x

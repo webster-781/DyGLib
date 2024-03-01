@@ -18,7 +18,7 @@ from utils.DataLoader import Data
 
 def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_sampler: NeighborSampler, evaluate_idx_data_loader: DataLoader,
                                    evaluate_neg_edge_sampler: NegativeEdgeSampler, evaluate_data: Data, loss_func: nn.Module,
-                                   num_neighbors: int = 20, time_gap: int = 2000):
+                                   num_neighbors: int = 20, time_gap: int = 2000, num_nodes = 10000):
     """
     evaluate models on the link prediction task
     :param model_name: str, name of the model
@@ -39,7 +39,7 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
     if model_name in ['DyRep', 'TGAT', 'TGN', 'CAWN', 'TCL', 'GraphMixer', 'DyGFormer']:
         # evaluation phase use all the graph information
         model[0].set_neighbor_sampler(neighbor_sampler)
-
+    pos_corr, neg_corr, pos_total, neg_total = torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device)
     model.eval()
 
     with torch.no_grad():
@@ -105,6 +105,7 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
                                                                       edge_ids=batch_edge_ids,
                                                                       edges_are_positive=True,
                                                                       num_neighbors=num_neighbors)
+            
             elif model_name in ['GraphMixer']:
                 # get temporal embedding of source and destination nodes
                 # two Tensors, with shape (batch_size, node_feat_dim)
@@ -158,7 +159,26 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
 
             predicts = torch.cat([positive_probabilities, negative_probabilities], dim=0)
             labels = torch.cat([torch.ones_like(positive_probabilities), torch.zeros_like(negative_probabilities)], dim=0)
-
+            # Tracking average precision metric wrt number of interaction of nodes
+            # Find out the counts of all nodes which used for prediction
+            pos_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids], model[0].memory_bank.node_interact_counts[batch_dst_node_ids]), dim = 0)
+            neg_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids], model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids]), dim = 0)
+            # Add 1 to each index for `total` examples counting.
+            pos_total.scatter_add_(0, pos_interact_counts, torch.ones_like(pos_interact_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
+            neg_total.scatter_add_(0, neg_interact_counts, torch.ones_like(neg_interact_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
+            
+            # Find out the counts of all nodes which gave correct predictions
+            pos_corr_intrs = torch.argwhere(positive_probabilities > 0.5).reshape(-1)
+            neg_corr_intrs = torch.argwhere(negative_probabilities <= 0.5).reshape(-1)
+            if len(pos_corr_intrs) > 0:
+                pos_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids[pos_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_dst_node_ids[pos_corr_intrs.cpu()]].reshape(-1)))
+                pos_corr.scatter_add_(0, pos_interact_corr_counts, torch.ones_like(pos_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
+            if len(neg_corr_intrs) > 0:
+                neg_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids[neg_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids[neg_corr_intrs.cpu()]].reshape(-1)))
+                neg_corr.scatter_add_(0, neg_interact_corr_counts, torch.ones_like(neg_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
+            # Add 1 to each index for `corr` examples counting.
+                    
+                        
             loss = loss_func(input=predicts, target=labels)
 
             evaluate_losses.append(loss.item())
@@ -168,7 +188,7 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
 
             evaluate_idx_data_loader_tqdm.set_description(f'evaluate for the {batch_idx + 1}-th batch, evaluate loss: {loss.item()}')
 
-    return evaluate_losses, evaluate_metrics
+    return evaluate_losses, evaluate_metrics, [pos_corr, neg_corr, pos_total, neg_total]
 
 
 def evaluate_model_node_classification(model_name: str, model: nn.Module, neighbor_sampler: NeighborSampler, evaluate_idx_data_loader: DataLoader,
