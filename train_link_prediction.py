@@ -402,9 +402,11 @@ if __name__ == "__main__":
 
             loss_func = nn.BCELoss()
             wandb_run.watch(model, 50)
+            max_deg = None
             for epoch in range(args.num_epochs):
                 # For histogram tracking of metrics wrt the count of number of interactions of nodes
-                pos_corr, neg_corr, pos_total, neg_total = torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device)
+                max_deg = num_nodes if max_deg is None else max_deg
+                pos_corr, neg_corr, pos_total, neg_total = torch.zeros(max_deg, device = model[0].device), torch.zeros(max_deg, device = model[0].device), torch.zeros(max_deg, device = model[0].device), torch.zeros(max_deg, device = model[0].device)
                 model.train()
                 if args.model_name in [
                     "DyRep",
@@ -638,7 +640,7 @@ if __name__ == "__main__":
                     loss_func=loss_func,
                     num_neighbors=args.num_neighbors,
                     time_gap=args.time_gap,
-                    num_nodes=num_nodes
+                    num_nodes=max_deg
                 )
 
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
@@ -658,6 +660,7 @@ if __name__ == "__main__":
                     loss_func=loss_func,
                     num_neighbors=args.num_neighbors,
                     time_gap=args.time_gap,
+                    num_nodes=max_deg
                 )
 
                 train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
@@ -717,7 +720,9 @@ if __name__ == "__main__":
                         loss_func=loss_func,
                         num_neighbors=args.num_neighbors,
                         time_gap=args.time_gap,
+                        num_nodes=max_deg
                     )
+                    max_deg = max(torch.max(test_hist[2].nonzero()), torch.max(test_hist[2].nonzero())) + 100
 
                     if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
                         # reload validation memory bank for new testing nodes
@@ -737,6 +742,7 @@ if __name__ == "__main__":
                         loss_func=loss_func,
                         num_neighbors=args.num_neighbors,
                         time_gap=args.time_gap,
+                        num_nodes=max_deg
                     )
                     
                     test_histogram = get_wandb_histogram(test_hist)
@@ -808,6 +814,7 @@ if __name__ == "__main__":
                     loss_func=loss_func,
                     num_neighbors=args.num_neighbors,
                     time_gap=args.time_gap,
+                    num_nodes=max_deg
                 )
 
                 new_node_val_losses, new_node_val_metrics = evaluate_model_link_prediction(
@@ -820,6 +827,7 @@ if __name__ == "__main__":
                     loss_func=loss_func,
                     num_neighbors=args.num_neighbors,
                     time_gap=args.time_gap,
+                    num_nodes=max_deg
                 )
 
             if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
@@ -836,6 +844,7 @@ if __name__ == "__main__":
                 loss_func=loss_func,
                 num_neighbors=args.num_neighbors,
                 time_gap=args.time_gap,
+                num_nodes=max_deg
             )
 
             if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
@@ -852,6 +861,7 @@ if __name__ == "__main__":
                 loss_func=loss_func,
                 num_neighbors=args.num_neighbors,
                 time_gap=args.time_gap,
+                num_nodes=max_deg
             )
             # store the evaluation metrics at the current run
             (
