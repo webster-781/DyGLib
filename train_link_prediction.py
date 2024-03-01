@@ -661,13 +661,12 @@ if __name__ == "__main__":
                     time_gap=args.time_gap,
                 )
 
-                if epoch < 20 or (epoch + 1) % 5:
-                    train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
-                    wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
-                    val_histogram = get_wandb_histogram(val_hist)
-                    wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
-                    new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
-                    wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
+                train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
+                wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
+                val_histogram = get_wandb_histogram(val_hist)
+                wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
+                new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
+                wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
                 
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
                     # reload validation memory bank for testing nodes or saving models
