@@ -590,7 +590,6 @@ if __name__ == "__main__":
                     )
                     
                     # Tracking average precision metric wrt number of interaction of nodes
-                    
                     # Find out the counts of all nodes which used for prediction
                     pos_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids], model[0].memory_bank.node_interact_counts[batch_dst_node_ids]), dim = 0)
                     neg_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids], model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids]), dim = 0)
@@ -602,10 +601,10 @@ if __name__ == "__main__":
                     pos_corr_intrs = torch.argwhere(positive_probabilities > 0.5).reshape(-1)
                     neg_corr_intrs = torch.argwhere(negative_probabilities <= 0.5).reshape(-1)
                     if len(pos_corr_intrs) > 0:
-                        pos_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids[pos_corr_intrs.cpu()]], model[0].memory_bank.node_interact_counts[batch_dst_node_ids[pos_corr_intrs.cpu()]]))
+                        pos_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids[pos_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_dst_node_ids[pos_corr_intrs.cpu()]].reshape(-1)))
                         pos_corr.scatter_add_(0, pos_interact_corr_counts, torch.ones_like(pos_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
                     if len(neg_corr_intrs) > 0:
-                        neg_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids[neg_corr_intrs.cpu()]], model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids[neg_corr_intrs.cpu()]]))
+                        neg_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids[neg_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids[neg_corr_intrs.cpu()]].reshape(-1)))
                         neg_corr.scatter_add_(0, neg_interact_corr_counts, torch.ones_like(neg_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
                     # Add 1 to each index for `corr` examples counting.
                     
