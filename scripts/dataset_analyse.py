@@ -9,7 +9,8 @@ import wandb
 import argparse
 
 
-ALL_DATASETS = ["SocialEvo", "uci", "Flights", "CanParl", "USLegis", "UNtrade", "UNvote", "Contacts", "mooc", "wikipedia", "reddit", "enron", "myket"]
+# ALL_DATASETS = ["SocialEvo", "uci", "Flights", "CanParl", "USLegis", "UNtrade", "UNvote", "Contacts", "mooc", "wikipedia", "reddit", "enron", "myket"]
+ALL_DATASETS = ["ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m"]
 ONE_FEAT_DATASETS = ["Flights", "CanParl", "USLegis", "UNtrade", "UNvote", "Contacts"]
 
 def calculate_correlation(old_deg, new_node_new_deg):
@@ -145,11 +146,13 @@ if __name__ == "__main__":
   parser.add_argument("data_name")
   args = parser.parse_args()
   # for data_name in :
-  #   calculate_correlation_plots(data_name)
+    # calculate_correlation_plots(data_name)
   t2_factors = [4]
-  t1_factors_of_t2 = [0.25, 0.75, 1.5, 2, 2.5]
+  t1_factors_of_t2 = [1]
+  # t1_factors_of_t2 = [0.25, 0.75, 1.5, 2, 2.5]
   t1_factors = [int(t1_factor_of_t2*t2_factors[-1]) for t1_factor_of_t2 in t1_factors_of_t2]
   datasets = [args.data_name]
+  # datasets = ALL_DATASETS
   all_args = itertools.product(datasets, t1_factors, t2_factors)
   all_args = [(x, y, z) for x, y, z in all_args]
   for (x, y, z) in all_args:

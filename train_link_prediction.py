@@ -804,7 +804,7 @@ if __name__ == "__main__":
 
             # the saved best model of memory-based models cannot perform validation since the stored memory has been updated by validation data
             if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP"]:
-                val_losses, val_metrics = evaluate_model_link_prediction(
+                val_losses, val_metrics, val_hist,  = evaluate_model_link_prediction(
                     model_name=args.model_name,
                     model=model,
                     neighbor_sampler=full_neighbor_sampler,
@@ -817,7 +817,7 @@ if __name__ == "__main__":
                     num_nodes=max_deg
                 )
 
-                new_node_val_losses, new_node_val_metrics = evaluate_model_link_prediction(
+                new_node_val_losses, new_node_val_metrics, new_node_val_hist = evaluate_model_link_prediction(
                     model_name=args.model_name,
                     model=model,
                     neighbor_sampler=full_neighbor_sampler,
@@ -834,7 +834,7 @@ if __name__ == "__main__":
                 # the memory in the best model has seen the validation edges, we need to backup the memory for new testing nodes
                 val_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
 
-            test_losses, test_metrics = evaluate_model_link_prediction(
+            test_losses, test_metrics, test_hist = evaluate_model_link_prediction(
                 model_name=args.model_name,
                 model=model,
                 neighbor_sampler=full_neighbor_sampler,
@@ -851,7 +851,7 @@ if __name__ == "__main__":
                 # reload validation memory bank for new testing nodes
                 model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
 
-            new_node_test_losses, new_node_test_metrics = evaluate_model_link_prediction(
+            new_node_test_losses, new_node_test_metrics, new_node_test_hist = evaluate_model_link_prediction(
                 model_name=args.model_name,
                 model=model,
                 neighbor_sampler=full_neighbor_sampler,
