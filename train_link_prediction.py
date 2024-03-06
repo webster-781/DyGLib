@@ -992,7 +992,7 @@ if __name__ == "__main__":
                     wandb_run.summary[key] = hist[best_epoch_num]
                     print(f"{wandb_run.summary[key]}")
                 summ[key] = wandb_run.summary[key]
-            wandb_run.summary.update(summ)
+            wandb_run.summary.update()
 
     # store the average metrics at the log of the last run
     logger.info(f"metrics over {args.num_runs} runs:")

@@ -301,3 +301,24 @@ class TimeInitTransformLinear(nn.Module):
         zeros[mask] = lin_out[mask]
         output = torch.sum(zeros, dim = 1)
         return output
+    
+class TimeInitTransformFourier(nn.Module):
+    def __init__(self, total_time, k = 25):
+        super(TimeInitTransformFourier, self).__init__()
+        self.lin = torch.nn.Parameter(torch.randn(2 * k), requires_grad = True)
+        # self.lin.weight.requires_grad = True
+        self.total_time = total_time
+        self.mask = torch.nn.Parameter(torch.tensor([pow(1/2, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
+        self.k = k
+    
+    def forward(self, time_diffs, check_time):
+        # time_diffs - tensor(n, k)
+        n, k = time_diffs.shape
+        mask = torch.argwhere(time_diffs - check_time != 0)
+        lin_out = time_diffs/self.total_time
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        zeros[mask] = lin_out[mask]
+
+        exp_out = (torch.cos(zeros.unsqueeze(-1) * self.mask.unsqueeze(0).unsqueeze(1)) * self.lin[:self.k]).sum(dim = 2) + torch.sin(zeros.unsqueeze(-1) * self.mask.unsqueeze(0).unsqueeze(1)  * self.lin[self.k:]).sum(dim = 2)
+        output = torch.sum(exp_out, dim = 1)
+        return output
