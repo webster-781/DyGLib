@@ -306,7 +306,7 @@ class TimeInitTransformFourier(nn.Module):
     def __init__(self, total_time, k = 25):
         super(TimeInitTransformFourier, self).__init__()
         self.lin = torch.nn.Parameter(torch.randn(2 * k), requires_grad = True)
-        # self.lin.weight.requires_grad = True
+        nn.init.xavier_uniform_(self.lin, gain=nn.init.calculate_gain('relu'))
         self.total_time = total_time
         self.mask = torch.nn.Parameter(torch.tensor([pow(1/2, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
         self.k = k
