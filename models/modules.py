@@ -303,12 +303,12 @@ class TimeInitTransformLinear(nn.Module):
         return output
     
 class TimeInitTransformFourier(nn.Module):
-    def __init__(self, total_time, k = 25):
+    def __init__(self, total_time, k = 50):
         super(TimeInitTransformFourier, self).__init__()
         self.lin = torch.nn.Parameter(torch.randn(2 * k), requires_grad = True)
         nn.init.normal_(self.lin)
         self.total_time = total_time
-        self.mask = torch.nn.Parameter(torch.tensor([pow(1/2, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
+        self.mask = torch.nn.Parameter(torch.tensor([pow(1/100, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
         self.k = k
     
     def forward(self, time_diffs, check_time):
@@ -322,3 +322,25 @@ class TimeInitTransformFourier(nn.Module):
         exp_out = (torch.cos(zeros.unsqueeze(-1) * self.mask.unsqueeze(0).unsqueeze(1)) * self.lin[:self.k]).sum(dim = 2) + torch.sin(zeros.unsqueeze(-1) * self.mask.unsqueeze(0).unsqueeze(1)  * self.lin[self.k:]).sum(dim = 2)
         output = torch.sum(exp_out, dim = 1)
         return output
+    
+class TimeInitTransformMLP(nn.Module):
+    def __init__(self, total_time):
+        super(TimeInitTransformMLP, self).__init__()
+        self.mlp_for_time = nn.Sequential(
+            nn.Linear(1, 1),
+            nn.ReLU(),
+            nn.Linear(1, 1),
+            nn.ReLU(),
+            nn.Linear(1, 1)
+        )
+        self.total_time = total_time
+    
+    def forward(self, time_diffs, check_time):
+        n, k = time_diffs.shape
+        mask = torch.argwhere(time_diffs - check_time != 0)
+        lin_out = time_diffs/self.total_time
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        zeros[mask] = lin_out[mask]
+        
+        return self.mlp_for_time(zeros.unsqueeze(2)).reshape(*zeros.shape).sum(dim=1).reshape(-1)
+        

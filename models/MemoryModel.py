@@ -5,7 +5,7 @@ from collections import defaultdict
 import math
 
 from utils.utils import NeighborSampler, vectorized_update_mem_2d
-from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier
+from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP
 
 
 class MemoryModel(torch.nn.Module):
@@ -74,6 +74,8 @@ class MemoryModel(torch.nn.Module):
             self.time_transformation_for_init = TimeInitTransformLinear(total_time)
         if self.init_weights == 'time-fourier':
             self.time_transformation_for_init = TimeInitTransformFourier(total_time)
+        if self.init_weights == 'time-mlp':
+            self.time_transformation_for_init = TimeInitTransformMLP(total_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
@@ -316,7 +318,7 @@ class MemoryModel(torch.nn.Module):
                 weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
         
         # If initialisation weight is expontential decay or linear decay
-        if self.init_weights in ['time-exp', 'time-linear', 'time-fourier']:
+        if self.init_weights in ['time-exp', 'time-linear', 'time-fourier', 'time-mlp']:
             last_k_times = self.memory_bank.node_last_k_updated_times
             curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
             if self.init_weights == 'time-exp':
@@ -324,7 +326,7 @@ class MemoryModel(torch.nn.Module):
                     log_dict['alpha'] = self.time_transformation_for_init.lin.weight.data.item()
                 # else:
                     # breakpoint()
-            weights = self.time_transformation_for_init(last_k_times - curr_time, -1 -curr_time )
+            weights = self.time_transformation_for_init(last_k_times - curr_time, -1 -curr_time)
             
         if node_memories_ids.shape[0] == self.num_nodes:
             # get_updated_memories case
@@ -335,19 +337,19 @@ class MemoryModel(torch.nn.Module):
             if node_memories_ids.shape[0] > 0:
                 use_node_memories[node_memories_ids] = node_memories
         
-        use_node_memories = self.emb_proj(use_node_memories)
+        to_use_node_memories = self.emb_proj(use_node_memories.clone())
         
         if weights is not None and torch.any(weights != 0):
-            new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
+            new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0) / weights.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            new_init_repeated = new_init.reshape(-1, 172).repeat(use_node_memories.shape[0], 1)
-            mask = torch.zeros(use_node_memories.shape[0]).to(self.device)
+            new_init_repeated = new_init.reshape(-1, 172).repeat(to_use_node_memories.shape[0], 1)
+            mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
             # breakpoint()
             if log_dict:
                 log_dict['new_init_mean'] = torch.mean(new_init_repeated)
                 log_dict['new_init_std'] = torch.std(new_init_repeated)
-            # Update memories using scatter_add
+            # Update memories
             use_node_memories = use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
         else:
             # first interval case
