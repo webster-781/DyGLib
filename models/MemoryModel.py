@@ -63,6 +63,13 @@ class MemoryModel(torch.nn.Module):
         # since models use the identity function for message encoding, message dimension is 2 * memory_dim + time_feat_dim + edge_feat_dim
         self.message_dim = self.memory_dim + self.memory_dim + self.time_feat_dim + self.edge_feat_dim
 
+        self.mlp_for_mean = nn.Sequential(
+            nn.Linear(self.memory_dim, self.memory_dim)
+        )
+        
+        self.mlp_for_mean = nn.Sequential(
+            nn.Linear(self.memory_dim, self.memory_dim)
+        )
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
         self.emb_proj = nn.Sequential(
             nn.Linear(self.memory_dim, self.memory_dim),
@@ -340,7 +347,10 @@ class MemoryModel(torch.nn.Module):
         if weights is not None and torch.any(weights != 0):
             new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            new_init_repeated = new_init.reshape(-1, 172).repeat(use_node_memories.shape[0], 1)
+            mean = self.mlp_for_mean(new_init)
+            sigma = self.mlp_for_mean(new_init)
+            new_init_repeated = torch.distributions.MultivariateNormal(mean, torch.diag(sigma)).sample([use_node_memories.shape[0]])
+            # new_init_repeated = new_init.reshape(-1, 172).repeat(use_node_memories.shape[0], 1)
             mask = torch.zeros(use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
             # breakpoint()
