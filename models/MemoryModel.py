@@ -337,7 +337,8 @@ class MemoryModel(torch.nn.Module):
             if node_memories_ids.shape[0] > 0:
                 use_node_memories[node_memories_ids] = node_memories
         
-        to_use_node_memories = self.emb_proj(use_node_memories.clone())
+        # to_use_node_memories = self.emb_proj(use_node_memories.clone())
+        to_use_node_memories = use_node_memories.clone()
         
         if weights is not None and torch.any(weights != 0):
             new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0) / weights.sum()
@@ -350,7 +351,7 @@ class MemoryModel(torch.nn.Module):
                 log_dict['new_init_mean'] = torch.mean(new_init_repeated)
                 log_dict['new_init_std'] = torch.std(new_init_repeated)
             # Update memories
-            use_node_memories = use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
+            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
         else:
             # first interval case
             return node_memories_ids.cpu().detach().numpy(), node_memories
