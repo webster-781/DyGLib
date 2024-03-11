@@ -342,7 +342,7 @@ class MemoryModel(torch.nn.Module):
             if node_memories_ids.shape[0] > 0:
                 use_node_memories[node_memories_ids] = node_memories
         
-        use_node_memories = self.emb_proj(use_node_memories)
+        use_node_memories = use_node_memories
         
         if weights is not None and torch.any(weights != 0):
             new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
