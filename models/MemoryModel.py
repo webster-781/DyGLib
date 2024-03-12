@@ -5,7 +5,7 @@ from collections import defaultdict
 import math
 
 from utils.utils import NeighborSampler, vectorized_update_mem_2d
-from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier
+from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP
 
 
 class MemoryModel(torch.nn.Module):
@@ -81,6 +81,8 @@ class MemoryModel(torch.nn.Module):
             self.time_transformation_for_init = TimeInitTransformLinear(total_time)
         if self.init_weights == 'time-fourier':
             self.time_transformation_for_init = TimeInitTransformFourier(total_time)
+        if self.init_weights == 'time-mlp':
+            self.time_transformation_for_init = TimeInitTransformMLP(total_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
@@ -349,7 +351,11 @@ class MemoryModel(torch.nn.Module):
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
             mean = self.mlp_for_mean(new_init)
             sigma = self.mlp_for_mean(new_init)
-            new_init_repeated = torch.distributions.MultivariateNormal(mean, torch.diag(sigma)).sample([use_node_memories.shape[0]])
+            samples = torch.distributions.MultivariateNormal(torch.zeros_like(new_init).to(self.device), torch.diag(torch.ones_like(new_init)).to(self.device)).sample([use_node_memories.shape[0]])
+            # breakpoint()
+            new_init_repeated = mean + samples@torch.diag(sigma)
+            
+            # breakpoint()
             # new_init_repeated = new_init.reshape(-1, 172).repeat(use_node_memories.shape[0], 1)
             mask = torch.zeros(use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
