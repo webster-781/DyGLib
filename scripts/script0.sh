@@ -1,5 +1,12 @@
-datasets=("SocialEvo" "uci" "Flights" "CanParl" "USLegis" "UNtrade" "UNvote" "Contacts")
+# datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
+datasets=("ia-retweet-pol")
+
+# init_methods=("time-exp" "time-linear" "time-fourier" "time-mlp")
+init_methods=("time-exp" "time-linear")
 
 for dataset_name in ${datasets[@]}; do
-  python train_link_prediction.py --dataset_name $dataset_name --model_name DecoLP --num_runs 1 --gpu 0 --num_layers 2 --num_heads 2 --dropout 0.1 --time_feat_dim 4 --use_wandb new_iterations --optimizer AdamW --learning_rate 0.0001 --weight_decay 0.05 --patience 50 --num_epochs 200 --use_wandb test_all --num_neighbors 150 --use_ROPe --position_feat_dim 96
+  for init_method in ${init_methods[@]}; do
+    nohup python /home/ayush/DyGLib/train_link_prediction.py --dataset_name ia-slashdot-reply-dir --model_name TGN --num_runs 1 --gpu 1 --optimizer AdamW --patience 150 --num_epochs 100 --load_best_configs --use_init_method --init_weights ${init_method} --use_wandb reparam-${init_method}
+ > ${dataset_name}_${init_method}
+  done
 done
