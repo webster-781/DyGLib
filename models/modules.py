@@ -303,12 +303,12 @@ class TimeInitTransformLinear(nn.Module):
         return output
     
 class TimeInitTransformFourier(nn.Module):
-    def __init__(self, total_time, k = 50):
+    def __init__(self, total_time, k = 128):
         super(TimeInitTransformFourier, self).__init__()
         self.lin = torch.nn.Parameter(torch.randn(2 * k), requires_grad = True)
-        nn.init.normal_(self.lin)
+        nn.init.uniform_(self.lin, a=-1/np.sqrt(k), b=1/np.sqrt(k))
         self.total_time = total_time
-        self.mask = torch.nn.Parameter(torch.tensor([pow(1/100, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
+        self.mask = torch.nn.Parameter(torch.tensor([pow(1/2, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
         self.k = k
     
     def forward(self, time_diffs, check_time):

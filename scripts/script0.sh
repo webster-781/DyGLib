@@ -1,5 +1,12 @@
-datasets=("SocialEvo" "uci" "Flights" "CanParl" "USLegis" "UNtrade" "UNvote" "Contacts")
+datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
+gpu=(1 2 0 1 2 0 1 2 0)
+# init_methods=("time-exp" "time-linear" "time-fourier" "time-mlp")
 
-for dataset_name in ${datasets[@]}; do
-  python train_link_prediction.py --dataset_name $dataset_name --model_name DecoLP --num_runs 1 --gpu 0 --num_layers 2 --num_heads 2 --dropout 0.1 --time_feat_dim 4 --use_wandb new_iterations --optimizer AdamW --learning_rate 0.0001 --weight_decay 0.05 --patience 50 --num_epochs 200 --use_wandb test_all --num_neighbors 150 --use_ROPe --position_feat_dim 96
+# datasets=("ia-retweet-pol" "ia-reality-call")
+init_methods=("time-fourier")
+cd /home/ayush/DyGLib/
+for i in {0..5}; do
+  for init_method in ${init_methods[@]}; do
+    nohup python train_link_prediction.py --dataset_name ${datasets[i]} --model_name TGN --num_runs 1 --gpu ${gpu[i]} --optimizer AdamW --patience 150 --num_epochs 100 --load_best_configs --use_init_method --init_weights ${init_method} --use_wandb $1-${init_method} & > /home/ayush/DyGLib/scripts/logs/${datasets[i]}_${init_method}
+  done
 done
