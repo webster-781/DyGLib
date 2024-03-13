@@ -67,7 +67,7 @@ class MemoryModel(torch.nn.Module):
             nn.Linear(self.memory_dim, self.memory_dim)
         )
         
-        self.mlp_for_mean = nn.Sequential(
+        self.mlp_for_sigma = nn.Sequential(
             nn.Linear(self.memory_dim, self.memory_dim)
         )
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
@@ -325,7 +325,7 @@ class MemoryModel(torch.nn.Module):
                 weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
         
         # If initialisation weight is expontential decay or linear decay
-        if self.init_weights in ['time-exp', 'time-linear', 'time-fourier']:
+        if self.init_weights in ['time-exp', 'time-linear', 'time-fourier', 'time-mlp']:
             last_k_times = self.memory_bank.node_last_k_updated_times
             curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
             if self.init_weights == 'time-exp':
@@ -350,7 +350,7 @@ class MemoryModel(torch.nn.Module):
             new_init = (weights.view(use_node_memories.shape[0], 1) * use_node_memories).sum(dim=0) / weights.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
             mean = self.mlp_for_mean(new_init)
-            sigma = self.mlp_for_mean(new_init)
+            sigma = self.mlp_for_sigma(new_init)
             samples = torch.distributions.MultivariateNormal(torch.zeros_like(new_init).to(self.device), torch.diag(torch.ones_like(new_init)).to(self.device)).sample([use_node_memories.shape[0]])
             # breakpoint()
             new_init_repeated = mean + samples@torch.diag(sigma)
