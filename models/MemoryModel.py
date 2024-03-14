@@ -5,7 +5,7 @@ from collections import defaultdict
 import math
 
 from utils.utils import NeighborSampler, vectorized_update_mem_2d
-from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP
+from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP, TimeInitTransformMLP2
 
 
 class MemoryModel(torch.nn.Module):
@@ -76,6 +76,8 @@ class MemoryModel(torch.nn.Module):
             self.time_transformation_for_init = TimeInitTransformFourier(total_time)
         if self.init_weights == 'time-mlp':
             self.time_transformation_for_init = TimeInitTransformMLP(total_time)
+        if self.init_weights == 'time-mlp2':
+            self.time_transformation_for_init = TimeInitTransformMLP2(total_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
@@ -318,16 +320,11 @@ class MemoryModel(torch.nn.Module):
                 weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
         
         # If initialisation weight is expontential decay or linear decay
-        if self.init_weights in ['time-exp', 'time-linear', 'time-fourier', 'time-mlp']:
+        if self.init_weights in ['time-exp', 'time-linear', 'time-fourier', 'time-mlp', 'time-mlp2']:
             last_k_times = self.memory_bank.node_last_k_updated_times
             curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
-            if self.init_weights == 'time-exp':
-                if log_dict:
-                    log_dict['alpha'] = self.time_transformation_for_init.lin.weight.data.item()
-                # else:
-                    # breakpoint()
-            weights = self.time_transformation_for_init(last_k_times - curr_time, -1 -curr_time)
-            
+            weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
+
         if node_memories_ids.shape[0] == self.num_nodes:
             # get_updated_memories case
             use_node_memories = node_memories

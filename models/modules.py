@@ -273,11 +273,12 @@ class TimeInitTransformExp(nn.Module):
         self.lin.weight.requires_grad = True
         self.total_time = total_time
     
-    def forward(self, time_diffs, check_time):
+    def forward(self, time_diffs, curr_time):
         # time_diffs - tensor(n, k)
+        check_time = -1 - curr_time
         n, k = time_diffs.shape
         mask = torch.argwhere(time_diffs - check_time != 0)
-        lin_out = self.lin(time_diffs.reshape(n, k, 1)/self.total_time).reshape(n, k)
+        lin_out = self.lin(time_diffs.reshape(n, k, 1)/curr_time).reshape(n, k)
         zeros = torch.zeros(n, k).to(time_diffs.device)
         zeros[mask] = lin_out[mask]
         exp_out = torch.exp(-torch.square(zeros))
@@ -288,34 +289,36 @@ class TimeInitTransformLinear(nn.Module):
     def __init__(self, total_time):
         super(TimeInitTransformLinear, self).__init__()
         self.lin = nn.Linear(1, 1, bias = True)
-        self.lin.weight.data.fill_(-1)
+        self.lin.weight.data.fill_(1)
         self.total_time = total_time
         self.lin.bias.data.fill_(0)
     
-    def forward(self, time_diffs, check_time):
+    def forward(self, time_diffs, curr_time):
         # time_diffs - tensor(n, k)
+        check_time = -1 - curr_time
         n, k = time_diffs.shape
         mask = torch.argwhere(time_diffs - check_time != 0)
-        lin_out = self.lin(time_diffs.reshape(n, k, 1)/self.total_time).reshape(n, k)
+        lin_out = self.lin(time_diffs.reshape(n, k, 1)/curr_time).reshape(n, k)
         zeros = torch.zeros(n, k).to(time_diffs.device)
         zeros[mask] = lin_out[mask]
         output = torch.sum(zeros, dim = 1)
         return output
     
 class TimeInitTransformFourier(nn.Module):
-    def __init__(self, total_time, k = 128):
+    def __init__(self, total_time, k = 32):
         super(TimeInitTransformFourier, self).__init__()
         self.lin = torch.nn.Parameter(torch.randn(2 * k), requires_grad = True)
-        nn.init.uniform_(self.lin, a=-1/np.sqrt(k), b=1/np.sqrt(k))
+        nn.init.uniform_(self.lin, a=0, b=1/np.sqrt(k))
         self.total_time = total_time
-        self.mask = torch.nn.Parameter(torch.tensor([pow(1/2, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
+        self.mask = torch.nn.Parameter(torch.tensor([pow(2^(k//2)) * pow(1/2, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
         self.k = k
     
-    def forward(self, time_diffs, check_time):
+    def forward(self, time_diffs, curr_time):
         # time_diffs - tensor(n, k)
+        check_time = -1 - curr_time
         n, k = time_diffs.shape
         mask = torch.argwhere(time_diffs - check_time != 0)
-        lin_out = time_diffs/self.total_time
+        lin_out = time_diffs/(curr_time)
         zeros = torch.zeros(n, k).to(time_diffs.device)
         zeros[mask] = lin_out[mask]
 
@@ -335,10 +338,32 @@ class TimeInitTransformMLP(nn.Module):
         )
         self.total_time = total_time
     
-    def forward(self, time_diffs, check_time):
+    def forward(self, time_diffs, curr_time):
+        check_time = -1 - curr_time
         n, k = time_diffs.shape
         mask = torch.argwhere(time_diffs - check_time != 0)
-        lin_out = time_diffs/self.total_time
+        lin_out = time_diffs/curr_time
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        zeros[mask] = lin_out[mask]
+        
+        return self.mlp_for_time(zeros.unsqueeze(2)).reshape(*zeros.shape).sum(dim=1).reshape(-1)
+        
+class TimeInitTransformMLP2(nn.Module):
+    def __init__(self, total_time, dim = 64):
+        super(TimeInitTransformMLP, self).__init__()
+        self.mlp_for_time = nn.Sequential(
+            nn.Linear(1, 64),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+        self.total_time = total_time
+    
+    def forward(self, time_diffs, curr_time):
+        check_time = -1 - curr_time
+        n, k = time_diffs.shape
+        mask = torch.argwhere(time_diffs - check_time != 0)
+        lin_out = time_diffs/curr_time
         zeros = torch.zeros(n, k).to(time_diffs.device)
         zeros[mask] = lin_out[mask]
         
