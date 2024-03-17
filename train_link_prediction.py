@@ -279,8 +279,7 @@ if __name__ == "__main__":
                     dst_node_std_time_shift=dst_node_std_time_shift,
                     device=args.device,
                     time_partitioned_node_degrees = time_partitioned_node_degrees,
-                    total_time = total_time,
-                    min_time= min_time,
+                    min_time = min_time,
                     init_weights = args.init_weights,
                     use_init_method = args.use_init_method
                 )

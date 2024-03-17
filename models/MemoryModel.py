@@ -11,10 +11,10 @@ from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInit
 class MemoryModel(torch.nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, total_time: float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
+                 time_feat_dim: int, min_time: float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
-                 device: str = 'cpu', init_weights: str = 'degree', use_init_method = False, min_time = 0):
+                 device: str = 'cpu', init_weights: str = 'degree', use_init_method = False):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -54,7 +54,7 @@ class MemoryModel(torch.nn.Module):
             self.time_partitioned_node_degrees = time_partitioned_node_degrees.to(self.device)
         else:
             self.time_partitioned_node_degrees = None
-        self.total_time = total_time
+        self.min_time = min_time
 
         self.model_name = model_name
         # number of nodes, including the padded node
@@ -69,15 +69,15 @@ class MemoryModel(torch.nn.Module):
             nn.ReLU(),
         )
         if self.init_weights == 'time-exp':
-            self.time_transformation_for_init = TimeInitTransformExp(total_time)
+            self.time_transformation_for_init = TimeInitTransformExp(min_time)
         if self.init_weights == 'time-linear':
-            self.time_transformation_for_init = TimeInitTransformLinear(total_time)
+            self.time_transformation_for_init = TimeInitTransformLinear(min_time)
         if self.init_weights == 'time-fourier':
-            self.time_transformation_for_init = TimeInitTransformFourier(total_time)
+            self.time_transformation_for_init = TimeInitTransformFourier(min_time)
         if self.init_weights == 'time-mlp':
-            self.time_transformation_for_init = TimeInitTransformMLP(total_time)
+            self.time_transformation_for_init = TimeInitTransformMLP(min_time)
         if self.init_weights == 'time-mlp2':
-            self.time_transformation_for_init = TimeInitTransformMLP2(total_time)
+            self.time_transformation_for_init = TimeInitTransformMLP2(min_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
@@ -314,7 +314,7 @@ class MemoryModel(torch.nn.Module):
         if self.init_weights == 'degree' or self.init_weights == 'log-degree':
             num_partitions_total = self.time_partitioned_node_degrees.shape[0]
             check_time = float(torch.min(torch.from_numpy(node_interact_times)))
-            partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.total_time) - 1
+            partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.min_time) - 1
             weights = self.time_partitioned_node_degrees[partition_num].clone()
             if self.init_weights == 'log-degree':
                 weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
