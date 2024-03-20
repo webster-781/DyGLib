@@ -5,7 +5,7 @@ from collections import defaultdict
 import math
 
 from utils.utils import NeighborSampler, vectorized_update_mem_2d
-from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP, TimeInitTransformMLP2
+from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP, TimeInitTransformMLP2, TimeInitTransform3Unite
 
 
 class MemoryModel(torch.nn.Module):
@@ -78,6 +78,8 @@ class MemoryModel(torch.nn.Module):
             self.time_transformation_for_init = TimeInitTransformMLP(min_time)
         if self.init_weights == 'time-mlp2':
             self.time_transformation_for_init = TimeInitTransformMLP2(min_time)
+        if self.init_weights == 'time-3unite':
+            self.time_transformation_for_init = TimeInitTransform3Unite(min_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 

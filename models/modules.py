@@ -380,3 +380,21 @@ class TimeInitTransformMLP2(nn.Module):
         
         return self.mlp_for_time(zeros.unsqueeze(2)).reshape(*zeros.shape).sum(dim=1).reshape(-1)
         
+        
+class TimeInitTransform3Unite(nn.Module):
+    def __init__(self, min_time, dim = 64):
+        super(TimeInitTransform3Unite, self).__init__()
+        self.exp = TimeInitTransformExp(min_time)
+        self.linear = TimeInitTransformLinear(min_time)
+        self.constant = 1
+        self.lamb1 = nn.Parameter(torch.abs(torch.randn(1)))
+        self.lamb2 = nn.Parameter(torch.abs(torch.randn(1)))
+        self.lamb3 = nn.Parameter(torch.abs(torch.randn(1)))
+        self.min_time = min_time
+    
+    def forward(self, time_diffs, curr_time):
+        exp_out = self.exp(time_diffs, curr_time)
+        lin_out = self.exp(time_diffs, curr_time)
+        constant = self.constant
+        total_out = exp_out * self.lamb1 + lin_out * self.lamb2 + constant * self.lamb3
+        return total_out
