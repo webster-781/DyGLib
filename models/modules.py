@@ -293,7 +293,8 @@ class TimeInitTransformLinear(nn.Module):
         self.lin = nn.Linear(1, 1, bias = True)
         self.lin.weight.data.fill_(1)
         self.min_time = min_time
-        self.lin.bias.data.fill_(0)
+        self.lin.bias.data.fill_(1)
+        self.lin.bias.requires_grad = False
     
     def forward(self, time_diffs, curr_time):
         # time_diffs - tensor(n, k)
