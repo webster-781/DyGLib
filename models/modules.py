@@ -298,7 +298,7 @@ class TimeInitTransformLinear(nn.Module):
     
     def forward(self, time_diffs, curr_time):
         # time_diffs - tensor(n, k)
-        check_time = -1 - curr_time
+        check_time = -1-curr_time
         n, k = time_diffs.shape
         if curr_time == self.min_time:
             curr_time = curr_time * (1.01)
@@ -387,14 +387,14 @@ class TimeInitTransform3Unite(nn.Module):
         self.exp = TimeInitTransformExp(min_time)
         self.linear = TimeInitTransformLinear(min_time)
         self.constant = 1
-        self.lamb1 = nn.Parameter(torch.abs(torch.randn(1)))
-        self.lamb2 = nn.Parameter(torch.abs(torch.randn(1)))
-        self.lamb3 = nn.Parameter(torch.abs(torch.randn(1)))
+        self.lamb1 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad= True)
+        self.lamb2 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad=True)
+        self.lamb3 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad=True)
         self.min_time = min_time
     
     def forward(self, time_diffs, curr_time):
         exp_out = self.exp(time_diffs, curr_time)
-        lin_out = self.exp(time_diffs, curr_time)
+        lin_out = self.linear(time_diffs, curr_time)
         constant = self.constant
         total_out = exp_out * self.lamb1 + lin_out * self.lamb2 + constant * self.lamb3
         return total_out

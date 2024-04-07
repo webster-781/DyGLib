@@ -322,7 +322,7 @@ class MemoryModel(torch.nn.Module):
                 weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
         
         # If initialisation weight is expontential decay or linear decay
-        if self.init_weights in ['time-exp', 'time-linear', 'time-fourier', 'time-mlp', 'time-mlp2']:
+        else:
             last_k_times = self.memory_bank.node_last_k_updated_times
             curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
             weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
