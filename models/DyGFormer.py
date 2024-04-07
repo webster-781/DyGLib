@@ -3,16 +3,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import MultiheadAttention
+from collections import defaultdict
 
 from models.modules import TimeEncoder
-from utils.utils import NeighborSampler
+from utils.utils import NeighborSampler, vectorized_update_mem_2d, get_latest_unique_indices
 
 
 class DyGFormer(nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, channel_embedding_dim: int, patch_size: int = 1, num_layers: int = 2, num_heads: int = 2,
-                 dropout: float = 0.1, max_input_sequence_length: int = 512, device: str = 'cpu'):
+                 time_feat_dim: int, channel_embedding_dim: int, patch_size: int = 1, num_layers: int = 2, num_heads: int = 2, 
+                 dropout: float = 0.1, max_input_sequence_length: int = 512, device: str = 'cpu', use_init_method: bool = False, init_weights: str = 'degree'):
         """
         DyGFormer model.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -43,8 +44,13 @@ class DyGFormer(nn.Module):
         self.dropout = dropout
         self.max_input_sequence_length = max_input_sequence_length
         self.device = device
+        self.num_nodes = self.node_raw_features.shape[0]
+        self.use_init_method = use_init_method
 
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
+
+        # memory modules
+        self.memory_bank = MemoryBank(num_nodes=self.num_nodes, memory_dim=self.node_feat_dim, device = self.device)
 
         self.neighbor_co_occurrence_feat_dim = self.channel_embedding_dim
         self.neighbor_co_occurrence_encoder = NeighborCooccurrenceEncoder(neighbor_co_occurrence_feat_dim=self.neighbor_co_occurrence_feat_dim, device=self.device)
@@ -65,7 +71,7 @@ class DyGFormer(nn.Module):
 
         self.output_layer = nn.Linear(in_features=self.num_channels * self.channel_embedding_dim, out_features=self.node_feat_dim, bias=True)
 
-    def compute_src_dst_node_temporal_embeddings(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray):
+    def compute_src_dst_node_temporal_embeddings(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray, edges_are_positive:bool):
         """
         compute source and destination node temporal embeddings
         :param src_node_ids: ndarray, shape (batch_size, )
@@ -191,6 +197,25 @@ class DyGFormer(nn.Module):
         # Tensor, shape (batch_size, node_feat_dim)
         dst_node_embeddings = self.output_layer(dst_patches_data)
 
+        if edges_are_positive:
+            src_unique_ids, src_latest_indices = get_latest_unique_indices(torch.from_numpy(src_node_ids))
+            dst_unique_ids, dst_latest_indices = get_latest_unique_indices(torch.from_numpy(dst_node_ids))
+            
+            self.memory_bank.node_memories[src_unique_ids] = src_node_embeddings[src_latest_indices].clone().detach()
+            self.memory_bank.node_memories[dst_unique_ids] = dst_node_embeddings[dst_latest_indices].clone().detach()
+            
+            self.memory_bank.node_last_updated_times[src_unique_ids] = torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device)
+            self.memory_bank.node_last_updated_times[dst_unique_ids] = torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device)
+            
+            self.memory_bank.node_last_k_updated_times[src_unique_ids] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[src_unique_ids], torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device))
+            self.memory_bank.node_last_k_updated_times[dst_unique_ids] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[dst_unique_ids], torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device))
+
+            self.memory_bank.is_node_seen[src_node_ids] = True
+            self.memory_bank.is_node_seen[dst_node_ids] = True
+            
+            self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(src_node_ids).to(self.device), torch.ones_like(torch.from_numpy(src_node_ids), device = self.device))
+            self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(dst_node_ids).to(self.device), torch.ones_like(torch.from_numpy(dst_node_ids), device = self.device))
+
         return src_node_embeddings, dst_node_embeddings
 
     def pad_sequences(self, node_ids: np.ndarray, node_interact_times: np.ndarray, nodes_neighbor_ids_list: list, nodes_edge_ids_list: list,
@@ -256,7 +281,12 @@ class DyGFormer(nn.Module):
         :return:
         """
         # Tensor, shape (batch_size, max_seq_length, node_feat_dim)
-        padded_nodes_neighbor_node_raw_features = self.node_raw_features[torch.from_numpy(padded_nodes_neighbor_ids)]
+        # Add node memories from memory_bank
+        if self.use_init_method:
+            padded_nodes_neighbor_node_raw_features = self.node_raw_features[torch.from_numpy(padded_nodes_neighbor_ids)] + self.memory_bank.node_memories[torch.from_numpy(padded_nodes_neighbor_ids)]
+        else:
+            padded_nodes_neighbor_node_raw_features = self.node_raw_features[torch.from_numpy(padded_nodes_neighbor_ids)]
+            
         # Tensor, shape (batch_size, max_seq_length, edge_feat_dim)
         padded_nodes_edge_raw_features = self.edge_raw_features[torch.from_numpy(padded_nodes_edge_ids)]
         # Tensor, shape (batch_size, max_seq_length, time_feat_dim)
@@ -459,3 +489,133 @@ class TransformerEncoder(nn.Module):
         # Tensor, shape (batch_size, num_patches, self.attention_dim)
         outputs = outputs + self.dropout(hidden_states)
         return outputs
+
+class MemoryBank(nn.Module):
+
+    def __init__(self, num_nodes: int, memory_dim: int, device: str, k = 20):
+        """
+        Memory bank, store node memories, node last updated times and node raw messages.
+        :param num_nodes: int, number of nodes
+        :param memory_dim: int, dimension of node memories
+        """
+        super(MemoryBank, self).__init__()
+        self.num_nodes = num_nodes
+        self.memory_dim = memory_dim
+        self.device = device
+
+        # Parameter, treat memory as parameters so that it is saved and loaded together with the model, shape (num_nodes, memory_dim)
+        self.node_memories = nn.Parameter(torch.zeros((self.num_nodes, self.memory_dim)), requires_grad=False)
+        # Parameter, last updated time of nodes, shape (num_nodes, )
+        self.node_last_updated_times = nn.Parameter(torch.zeros(self.num_nodes), requires_grad=False)
+        # dictionary of list, {node_id: list of tuples}, each tuple is (message, time) with type (Tensor shape (message_dim, ), a scalar)
+        self.node_raw_messages = defaultdict(list)
+        self.is_node_seen = torch.zeros(size = (self.num_nodes, ), dtype = torch.bool, requires_grad = False).to(self.device)
+        self.node_last_k_updated_times = nn.Parameter(float('-inf') * torch.ones(self.num_nodes, k), requires_grad=False)
+        self.node_interact_counts = torch.zeros(size = (self.num_nodes, ), dtype = torch.int64, requires_grad=False).to(self.device)
+        
+        self.__init_memory_bank__()
+
+    def __init_memory_bank__(self):
+        """
+        initialize all the memories and node_last_updated_times to zero vectors, reset the node_raw_messages, which should be called at the start of each epoch
+        :return:
+        """
+        self.node_memories.data.zero_()
+        self.node_last_updated_times.data.zero_()
+        self.node_raw_messages = defaultdict(list)
+        self.is_node_seen.zero_()
+        self.node_last_k_updated_times.fill_(-1)
+        self.node_interact_counts.zero_()
+
+    def get_memories(self, node_ids: np.ndarray):
+        """
+        get memories for nodes in node_ids
+        :param node_ids: ndarray, shape (batch_size, )
+        :return:
+        """
+        return self.node_memories[torch.from_numpy(node_ids)]
+
+    def set_memories(self, node_ids: np.ndarray, updated_node_memories: torch.Tensor):
+        """
+        set memories for nodes in node_ids to updated_node_memories
+        :param node_ids: ndarray, shape (batch_size, )
+        :param updated_node_memories: Tensor, shape (num_unique_node_ids, memory_dim)
+        :return:
+        """
+        if node_ids.shape[0] > 0:
+            self.node_memories[torch.from_numpy(node_ids)] = updated_node_memories
+
+    def backup_memory_bank(self):
+        """
+        backup the memory bank, get the copy of current memories, node_last_updated_times and node_raw_messages
+        :return:
+        """
+        cloned_node_raw_messages = {}
+        for node_id, node_raw_messages in self.node_raw_messages.items():
+            cloned_node_raw_messages[node_id] = [(node_raw_message[0].clone(), node_raw_message[1].copy()) for node_raw_message in node_raw_messages]
+
+        return self.node_memories.data.clone(), self.node_last_updated_times.data.clone(), cloned_node_raw_messages, self.is_node_seen.clone(), self.node_last_k_updated_times.clone(), self.node_interact_counts.clone()
+
+    def reload_memory_bank(self, backup_memory_bank: tuple):
+        """
+        reload the memory bank based on backup_memory_bank
+        :param backup_memory_bank: tuple (node_memories, node_last_updated_times, node_raw_messages)
+        :return:
+        """
+        self.node_memories.data, self.node_last_updated_times.data, self.is_node_seen, self.node_last_k_updated_times.data, self.node_interact_counts = backup_memory_bank[0].clone(), backup_memory_bank[1].clone(), backup_memory_bank[3].clone(), backup_memory_bank[4].clone(), backup_memory_bank[5].clone()
+
+        self.node_raw_messages = defaultdict(list)
+        for node_id, node_raw_messages in backup_memory_bank[2].items():
+            self.node_raw_messages[node_id] = [(node_raw_message[0].clone(), node_raw_message[1].copy()) for node_raw_message in node_raw_messages]
+
+    def detach_memory_bank(self):
+        """
+        detach the gradients of node memories and node raw messages
+        :return:
+        """
+        self.node_memories.detach_()
+
+        # Detach all stored messages
+        for node_id, node_raw_messages in self.node_raw_messages.items():
+            new_node_raw_messages = []
+            for node_raw_message in node_raw_messages:
+                new_node_raw_messages.append((node_raw_message[0].detach(), node_raw_message[1]))
+
+            self.node_raw_messages[node_id] = new_node_raw_messages
+
+    def store_node_raw_messages(self, node_ids: np.ndarray, new_node_raw_messages: dict):
+        """
+        store raw messages for nodes in node_ids
+        :param node_ids: ndarray, shape (batch_size, )
+        :param new_node_raw_messages: dict, dictionary of list, {node_id: list of tuples},
+        each tuple is (message, time) with type (Tensor shape (message_dim, ), a scalar)
+        :return:
+        """
+        for node_id in node_ids:
+            self.is_node_seen[node_id] = True
+            self.node_interact_counts[node_id] += 1
+            self.node_raw_messages[node_id].extend(new_node_raw_messages[node_id])
+
+    def clear_node_raw_messages(self, node_ids: np.ndarray):
+        """
+        clear raw messages for nodes in node_ids
+        :param node_ids: ndarray, shape (batch_size, )
+        :return:
+        """
+        for node_id in node_ids:
+            self.node_raw_messages[node_id] = []
+
+    def get_node_last_updated_times(self, unique_node_ids: np.ndarray):
+        """
+        get last updated times for nodes in unique_node_ids
+        :param unique_node_ids: ndarray, (num_unique_node_ids, )
+        :return:
+        """
+        return self.node_last_updated_times[torch.from_numpy(unique_node_ids)]
+
+    def extra_repr(self):
+        """
+        set the extra representation of the module, print customized extra information
+        :return:
+        """
+        return 'num_nodes={}, memory_dim={}'.format(self.node_memories.shape[0], self.node_memories.shape[1])

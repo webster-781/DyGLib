@@ -130,14 +130,16 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
                 batch_src_node_embeddings, batch_dst_node_embeddings = \
                     model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=batch_src_node_ids,
                                                                       dst_node_ids=batch_dst_node_ids,
-                                                                      node_interact_times=batch_node_interact_times)
+                                                                      node_interact_times=batch_node_interact_times,
+                                                                      edges_are_positive=True)
 
                 # get temporal embedding of negative source and negative destination nodes
                 # two Tensors, with shape (batch_size, node_feat_dim)
                 batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
                     model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=batch_neg_src_node_ids,
                                                                       dst_node_ids=batch_neg_dst_node_ids,
-                                                                      node_interact_times=batch_node_interact_times)
+                                                                      node_interact_times=batch_node_interact_times,
+                                                                      edges_are_positive=False)
             else:
                 raise ValueError(f"Wrong value for model_name {model_name}!")
             # get positive and negative probabilities, shape (batch_size, )
@@ -160,7 +162,7 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
             predicts = torch.cat([positive_probabilities, negative_probabilities], dim=0)
             labels = torch.cat([torch.ones_like(positive_probabilities), torch.zeros_like(negative_probabilities)], dim=0)
             
-            if model_name in ['JODIE', 'DyRep', 'TGN', 'DecoLP']:
+            if model_name in ['JODIE', 'DyRep', 'TGN', 'DecoLP', 'DyGFormer']:
                 # Tracking average precision metric wrt number of interaction of nodes
                 # Find out the counts of all nodes which used for prediction
                 pos_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids], model[0].memory_bank.node_interact_counts[batch_dst_node_ids]), dim = 0)

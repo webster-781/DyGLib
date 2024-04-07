@@ -1,4 +1,4 @@
-datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
+datasets=("ia-movielens-user2tags-10m")
 # datasets=("ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
 gpu=2
 init_methods=("time-exp")
