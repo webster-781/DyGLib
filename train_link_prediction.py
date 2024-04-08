@@ -546,7 +546,8 @@ if __name__ == "__main__":
                             src_node_ids=batch_neg_src_node_ids,
                             dst_node_ids=batch_neg_dst_node_ids,
                             node_interact_times=batch_node_interact_times,
-                            edges_are_positive=False
+                            edges_are_positive=False,
+                            log_dict = wandb_log_dict
                         )
                         
                         
@@ -558,7 +559,8 @@ if __name__ == "__main__":
                             src_node_ids=batch_src_node_ids,
                             dst_node_ids=batch_dst_node_ids,
                             node_interact_times=batch_node_interact_times,
-                            edges_are_positive=True
+                            edges_are_positive=True,
+                            log_dict = wandb_log_dict
                         )
 
                     else:

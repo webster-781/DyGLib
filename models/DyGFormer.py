@@ -80,7 +80,7 @@ class DyGFormer(nn.Module):
 
         self.output_layer = nn.Linear(in_features=self.num_channels * self.channel_embedding_dim, out_features=self.node_feat_dim, bias=True)
 
-    def compute_src_dst_node_temporal_embeddings(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray, edges_are_positive:bool):
+    def compute_src_dst_node_temporal_embeddings(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray, edges_are_positive:bool, log_dict:dict):
         """
         compute source and destination node temporal embeddings
         :param src_node_ids: ndarray, shape (batch_size, )
@@ -126,14 +126,14 @@ class DyGFormer(nn.Module):
         # src_padded_nodes_neighbor_time_features, Tensor, shape (batch_size, src_max_seq_length, time_feat_dim)
         src_padded_nodes_neighbor_node_raw_features, src_padded_nodes_edge_raw_features, src_padded_nodes_neighbor_time_features = \
             self.get_features(node_interact_times=node_interact_times, padded_nodes_neighbor_ids=src_padded_nodes_neighbor_ids,
-                              padded_nodes_edge_ids=src_padded_nodes_edge_ids, padded_nodes_neighbor_times=src_padded_nodes_neighbor_times, time_encoder=self.time_encoder)
+                              padded_nodes_edge_ids=src_padded_nodes_edge_ids, padded_nodes_neighbor_times=src_padded_nodes_neighbor_times, time_encoder=self.time_encoder, log_dict=log_dict)
 
         # dst_padded_nodes_neighbor_node_raw_features, Tensor, shape (batch_size, dst_max_seq_length, node_feat_dim)
         # dst_padded_nodes_edge_raw_features, Tensor, shape (batch_size, dst_max_seq_length, edge_feat_dim)
         # dst_padded_nodes_neighbor_time_features, Tensor, shape (batch_size, dst_max_seq_length, time_feat_dim)
         dst_padded_nodes_neighbor_node_raw_features, dst_padded_nodes_edge_raw_features, dst_padded_nodes_neighbor_time_features = \
             self.get_features(node_interact_times=node_interact_times, padded_nodes_neighbor_ids=dst_padded_nodes_neighbor_ids,
-                              padded_nodes_edge_ids=dst_padded_nodes_edge_ids, padded_nodes_neighbor_times=dst_padded_nodes_neighbor_times, time_encoder=self.time_encoder)
+                              padded_nodes_edge_ids=dst_padded_nodes_edge_ids, padded_nodes_neighbor_times=dst_padded_nodes_neighbor_times, time_encoder=self.time_encoder, log_dict=log_dict)
 
         # get the patches for source and destination nodes
         # src_patches_nodes_neighbor_node_raw_features, Tensor, shape (batch_size, src_num_patches, patch_size * node_feat_dim)
@@ -230,10 +230,10 @@ class DyGFormer(nn.Module):
                 updated_node_memories = torch.cat((src_node_embeddings[src_latest_indices], dst_node_embeddings[dst_latest_indices]), dim = 0)
                 node_interact_times = np.array(torch.cat((torch.from_numpy(node_interact_times)[src_latest_indices], torch.from_numpy(node_interact_times)[dst_latest_indices])))
                 
-                unique_node_ids, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, log_dict = None)
+                # unique_node_ids, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, log_dict = None)
             
                 # update memories for nodes in unique_node_ids
-                self.memory_bank.set_memories(node_ids=unique_node_ids, updated_node_memories=updated_node_memories)
+                self.memory_bank.set_memories(node_ids=node_ids, updated_node_memories=updated_node_memories)
 
         return src_node_embeddings, dst_node_embeddings
 
@@ -246,7 +246,7 @@ class DyGFormer(nn.Module):
         node_memories_ids = torch.from_numpy(node_memories_ids)
         node_ids = torch.from_numpy(node_ids).to(self.device)
         
-        if self.time_partitioned_node_degrees is None:
+        if self.init_weights in ['degree', 'log-degree'] and self.time_partitioned_node_degrees is None:
             return node_memories_ids.cpu().detach().numpy(), node_memories
         
         node_memories_ids = node_memories_ids.to(self.device)
@@ -298,7 +298,7 @@ class DyGFormer(nn.Module):
             return node_memories_ids.cpu().detach().numpy(), use_node_memories
         else:
             if node_memories_ids.shape[0] > 0:
-                node_ids_to_update = torch.cat((new_node_ids, node_memories_ids), dim = 0)
+                node_ids_to_update = node_memories_ids
             else:
                 node_ids_to_update = new_node_ids
             return node_ids_to_update.cpu().detach().numpy(), use_node_memories[node_ids_to_update]
@@ -356,7 +356,7 @@ class DyGFormer(nn.Module):
         return padded_nodes_neighbor_ids, padded_nodes_edge_ids, padded_nodes_neighbor_times
 
     def get_features(self, node_interact_times: np.ndarray, padded_nodes_neighbor_ids: np.ndarray, padded_nodes_edge_ids: np.ndarray,
-                     padded_nodes_neighbor_times: np.ndarray, time_encoder: TimeEncoder):
+                     padded_nodes_neighbor_times: np.ndarray, time_encoder: TimeEncoder, log_dict: dict):
         """
         get node, edge and time features
         :param node_interact_times: ndarray, shape (batch_size, )
@@ -369,7 +369,11 @@ class DyGFormer(nn.Module):
         # Tensor, shape (batch_size, max_seq_length, node_feat_dim)
         # Add node memories from memory_bank
         if self.use_init_method:
-            padded_nodes_neighbor_node_raw_features = self.node_raw_features[torch.from_numpy(padded_nodes_neighbor_ids)] + self.memory_bank.node_memories[torch.from_numpy(padded_nodes_neighbor_ids)]
+            if self.init_weights == 'normal-dyg':
+                addition = self.memory_bank.node_memories[torch.from_numpy(padded_nodes_neighbor_ids)]
+            else:
+                ids, addition = self.get_init_node_memory_from_degree(node_ids=padded_nodes_neighbor_ids, node_memories=self.memory_bank.node_memories[torch.from_numpy(padded_nodes_neighbor_ids)].clone(), node_memories_ids=padded_nodes_neighbor_ids, node_interact_times=node_interact_times, log_dict=log_dict)
+            padded_nodes_neighbor_node_raw_features = self.node_raw_features[torch.from_numpy(padded_nodes_neighbor_ids)] + addition
         else:
             padded_nodes_neighbor_node_raw_features = self.node_raw_features[torch.from_numpy(padded_nodes_neighbor_ids)]
             
