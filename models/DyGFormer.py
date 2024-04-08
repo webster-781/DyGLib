@@ -5,15 +5,16 @@ import torch.nn.functional as F
 from torch.nn import MultiheadAttention
 from collections import defaultdict
 
-from models.modules import TimeEncoder
+from models.modules import TimeEncoder, TimeInitTransformExp, TimeInitTransformLinear
 from utils.utils import NeighborSampler, vectorized_update_mem_2d, get_latest_unique_indices
+
 
 
 class DyGFormer(nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
                  time_feat_dim: int, channel_embedding_dim: int, patch_size: int = 1, num_layers: int = 2, num_heads: int = 2, 
-                 dropout: float = 0.1, max_input_sequence_length: int = 512, device: str = 'cpu', use_init_method: bool = False, init_weights: str = 'degree'):
+                 dropout: float = 0.1, max_input_sequence_length: int = 512, device: str = 'cpu', use_init_method: bool = False, init_weights: str = 'degree', time_partitioned_node_degrees= None, min_time=0):
         """
         DyGFormer model.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -46,11 +47,19 @@ class DyGFormer(nn.Module):
         self.device = device
         self.num_nodes = self.node_raw_features.shape[0]
         self.use_init_method = use_init_method
+        self.init_weights = init_weights
+        self.time_partitioned_node_degrees = time_partitioned_node_degrees
+        self.min_time = min_time
 
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
 
         # memory modules
         self.memory_bank = MemoryBank(num_nodes=self.num_nodes, memory_dim=self.node_feat_dim, device = self.device)
+
+        if self.init_weights == 'time-exp':
+            self.time_transformation_for_init = TimeInitTransformExp(min_time)
+        if self.init_weights == 'time-linear':
+            self.time_transformation_for_init = TimeInitTransformLinear(min_time)
 
         self.neighbor_co_occurrence_feat_dim = self.channel_embedding_dim
         self.neighbor_co_occurrence_encoder = NeighborCooccurrenceEncoder(neighbor_co_occurrence_feat_dim=self.neighbor_co_occurrence_feat_dim, device=self.device)
@@ -215,8 +224,85 @@ class DyGFormer(nn.Module):
             
             self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(src_node_ids).to(self.device), torch.ones_like(torch.from_numpy(src_node_ids), device = self.device))
             self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(dst_node_ids).to(self.device), torch.ones_like(torch.from_numpy(dst_node_ids), device = self.device))
+            
+            if self.use_init_method:
+                node_ids = np.array(torch.cat((src_unique_ids, dst_unique_ids)).tolist())
+                updated_node_memories = torch.cat((src_node_embeddings[src_latest_indices], dst_node_embeddings[dst_latest_indices]), dim = 0)
+                node_interact_times = np.array(torch.cat((torch.from_numpy(node_interact_times)[src_latest_indices], torch.from_numpy(node_interact_times)[dst_latest_indices])))
+                
+                unique_node_ids, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, log_dict = None)
+            
+                # update memories for nodes in unique_node_ids
+                self.memory_bank.set_memories(node_ids=unique_node_ids, updated_node_memories=updated_node_memories)
 
         return src_node_embeddings, dst_node_embeddings
+
+    def get_init_node_memory_from_degree(self, node_ids, node_memories, node_memories_ids, node_interact_times, log_dict):
+        """
+        Updates the unseen nodes' embeddings to have a weighted average of embeddings of highly interacting nodes.
+        node_ids: which node_ids are relevant
+        node_memories: to update into and to calculate weighted average from
+        """
+        node_memories_ids = torch.from_numpy(node_memories_ids)
+        node_ids = torch.from_numpy(node_ids).to(self.device)
+        
+        if self.time_partitioned_node_degrees is None:
+            return node_memories_ids.cpu().detach().numpy(), node_memories
+        
+        node_memories_ids = node_memories_ids.to(self.device)
+        weights = None
+        # If initialisation weight is degree or log degree
+        if self.init_weights == 'degree' or self.init_weights == 'log-degree':
+            num_partitions_total = self.time_partitioned_node_degrees.shape[0]
+            check_time = float(torch.min(torch.from_numpy(node_interact_times)))
+            partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.min_time) - 1
+            weights = self.time_partitioned_node_degrees[partition_num].clone()
+            if self.init_weights == 'log-degree':
+                weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
+        
+        # If initialisation weight is expontential decay or linear decay
+        else:
+            last_k_times = self.memory_bank.node_last_k_updated_times
+            curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
+            weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
+
+        if node_memories_ids.shape[0] == self.num_nodes:
+            # get_updated_memories case
+            use_node_memories = node_memories
+        else:
+            # update_memories case
+            use_node_memories = self.memory_bank.node_memories.clone()
+            if node_memories_ids.shape[0] > 0:
+                use_node_memories[node_memories_ids] = node_memories
+        
+        # to_use_node_memories = self.emb_proj(use_node_memories.clone())
+        to_use_node_memories = use_node_memories.clone()
+        
+        if weights is not None and torch.any(weights != 0):
+            new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0) / weights.sum()
+            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
+            new_init_repeated = new_init.reshape(-1, 172).repeat(to_use_node_memories.shape[0], 1)
+            mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
+            mask[new_node_ids] = 1
+            # breakpoint()
+            if log_dict:
+                log_dict['new_init_mean'] = torch.mean(new_init_repeated)
+                log_dict['new_init_std'] = torch.std(new_init_repeated)
+            # Update memories
+            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
+        else:
+            # first interval case
+            return node_memories_ids.cpu().detach().numpy(), node_memories
+        
+        if node_memories_ids.shape[0] == self.num_nodes:
+            return node_memories_ids.cpu().detach().numpy(), use_node_memories
+        else:
+            if node_memories_ids.shape[0] > 0:
+                node_ids_to_update = torch.cat((new_node_ids, node_memories_ids), dim = 0)
+            else:
+                node_ids_to_update = new_node_ids
+            return node_ids_to_update.cpu().detach().numpy(), use_node_memories[node_ids_to_update]
+
 
     def pad_sequences(self, node_ids: np.ndarray, node_interact_times: np.ndarray, nodes_neighbor_ids_list: list, nodes_edge_ids_list: list,
                       nodes_neighbor_times_list: list, patch_size: int = 1, max_input_sequence_length: int = 256):

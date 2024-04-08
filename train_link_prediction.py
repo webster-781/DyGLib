@@ -362,7 +362,10 @@ if __name__ == "__main__":
                     dropout=args.dropout,
                     max_input_sequence_length=args.max_input_sequence_length,
                     device=args.device,
-                    use_init_method=args.use_init_method
+                    use_init_method=args.use_init_method,
+                    init_weights=args.init_weights,
+                    time_partitioned_node_degrees = time_partitioned_node_degrees,
+                    min_time = min_time,
                 )
             else:
                 raise ValueError(f"Wrong value for model_name {args.model_name}!")

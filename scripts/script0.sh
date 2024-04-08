@@ -1,7 +1,8 @@
-datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
-# datasets=("ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
-gpu=3
-init_methods=("time-linear" "time-exp")
+# datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
+datasets=("ia-movielens-user2tags-10m")
+gpu=0
+# init_methods=("time-linear" "time-exp")
+init_methods=("time-linear")
 
 # datasets=("ia-retweet-pol" "ia-reality-call")
 # init_methods=("time-fourier" "time-mlp2" "time-exp" "time-mlp" "time-linear")
