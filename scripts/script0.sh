@@ -1,10 +1,8 @@
 datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
-# datasets=("ia-movielens-user2tags-10m")
-gpu=0
-# init_methods=("time-linear" "time-exp")
-init_methods=("time-exp" "time-linear")
+# datasets=("wikipedia" "reddit" "lastfm")
+gpu=2
+init_methods=("time-context")
 
-# datasets=("ia-retweet-pol" "ia-reality-call")
 # init_methods=("time-fourier" "time-mlp2" "time-exp" "time-mlp" "time-linear")
 cd /home/ayush/DyGLib/
 for i in {0..5}; do

@@ -396,5 +396,93 @@ class TimeInitTransform3Unite(nn.Module):
         exp_out = self.exp(time_diffs, curr_time)
         lin_out = self.linear(time_diffs, curr_time)
         constant = self.constant
-        total_out = exp_out * self.lamb1 + lin_out * self.lamb2 + constant * self.lamb3
+        total_out = 0.1 * (exp_out * self.lamb1  + lin_out * self.lamb2 + constant * self.lamb3)
         return total_out
+    
+class TimeInitTransformQuad(nn.Module):
+    def __init__(self, min_time):
+        super(TimeInitTransformQuad, self).__init__()
+        self.lin = nn.Linear(2, 1, bias = True)
+        self.lin.weight.data.fill_(0.1)
+        self.min_time = min_time
+        self.lin.bias.data.fill_(0.5)
+        self.lin.bias.requires_grad = False
+    
+    def forward(self, time_diffs, curr_time):
+        # time_diffs - tensor(n, k)
+        check_time = -1-curr_time
+        n, k = time_diffs.shape
+        if curr_time == self.min_time:
+            curr_time = curr_time * (1.01)
+        mask = torch.argwhere(time_diffs - check_time != 0)
+        reshaped = time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)
+        inp = torch.cat((reshaped, torch.pow(reshaped, 2)), dim = 2)
+        lin_out = self.lin(inp).reshape(n, k)
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        zeros[mask] = lin_out[mask]
+        output = torch.sum(zeros, dim = 1)
+        return output
+
+class TimeInitTransformCubic(nn.Module):
+    def __init__(self, min_time):
+        super(TimeInitTransformCubic, self).__init__()
+        self.lin = nn.Linear(3, 1, bias = True)
+        self.lin.weight.data.fill_(0.1)
+        self.min_time = min_time
+        self.lin.bias.data.fill_(0.5)
+        self.lin.bias.requires_grad = False
+    
+    def forward(self, time_diffs, curr_time):
+        # time_diffs - tensor(n, k)
+        check_time = -1-curr_time
+        n, k = time_diffs.shape
+        if curr_time == self.min_time:
+            curr_time = curr_time * (1.01)
+        mask = torch.argwhere(time_diffs - check_time != 0)
+        reshaped = time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)
+        inp = torch.cat((reshaped, torch.pow(reshaped, 2), torch.pow(reshaped, 3)), dim = 2)
+        lin_out = self.lin(inp).reshape(n, k)
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        zeros[mask] = lin_out[mask]
+        output = torch.sum(zeros, dim = 1)
+        return output
+
+class TimeInitTransformContext(nn.Module):
+    def __init__(self, min_time, total_time):
+        super(TimeInitTransformContext, self).__init__()
+        # self.lin = nn.Linear(2, 1, bias = True)
+        self.lin = nn.Sequential(
+            nn.Linear(2, 8, bias = True),
+            nn.LeakyReLU(),
+            nn.Dropout(),
+            nn.Linear(8, 8, bias = True),
+            nn.LeakyReLU(),
+            nn.Dropout(),
+            nn.Linear(8, 1, bias = True),
+            nn.Dropout(),
+            nn.LeakyReLU()
+        )
+        # self.lin.weight.data.fill_(0.1)
+        self.min_time = min_time
+        self.total_time = total_time
+        # self.lin.bias.data.fill_(0.5)
+        # self.lin.bias.requires_grad = False
+    
+    def forward(self, time_diffs, curr_time, node_interact_times):
+        # time_diffs - tensor(n, k)
+        check_time = -1-curr_time
+        n, k = time_diffs.shape
+        if curr_time == self.min_time:
+            curr_time = curr_time * (1.01)
+
+        mask = torch.argwhere(time_diffs - check_time != 0)
+        append = node_interact_times.reshape(-1, 1).repeat(1, k).reshape(-1, k, 1)/self.total_time
+        reshaped = time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)
+        inp = torch.cat((reshaped, append), dim = 2)
+        # Take from -1 to 1
+        inp = 2*inp - 1
+        lin_out = self.lin(inp).reshape(n, k)
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        zeros[mask] = lin_out[mask]
+        output = torch.sum(zeros, dim = 1)
+        return output

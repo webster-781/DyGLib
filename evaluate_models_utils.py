@@ -258,7 +258,9 @@ def evaluate_model_node_classification(model_name: str, model: nn.Module, neighb
                 batch_src_node_embeddings, batch_dst_node_embeddings = \
                     model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=batch_src_node_ids,
                                                                       dst_node_ids=batch_dst_node_ids,
-                                                                      node_interact_times=batch_node_interact_times)
+                                                                      node_interact_times=batch_node_interact_times,
+                                                                      edges_are_positive=True
+                                                                      )
             else:
                 raise ValueError(f"Wrong value for model_name {model_name}!")
             # get predicted probabilities, shape (batch_size, )

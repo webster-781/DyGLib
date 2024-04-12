@@ -5,13 +5,13 @@ from collections import defaultdict
 import math
 
 from utils.utils import NeighborSampler, vectorized_update_mem_2d
-from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP, TimeInitTransformMLP2, TimeInitTransform3Unite
+from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP, TimeInitTransformMLP2, TimeInitTransform3Unite, TimeInitTransformQuad, TimeInitTransformCubic, TimeInitTransformContext
 
 
 class MemoryModel(torch.nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, min_time: float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
+                 time_feat_dim: int, min_time: float, total_time:float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
                  device: str = 'cpu', init_weights: str = 'degree', use_init_method = False):
@@ -80,6 +80,12 @@ class MemoryModel(torch.nn.Module):
             self.time_transformation_for_init = TimeInitTransformMLP2(min_time)
         if self.init_weights == 'time-3unite':
             self.time_transformation_for_init = TimeInitTransform3Unite(min_time)
+        if self.init_weights == 'time-quad':
+            self.time_transformation_for_init = TimeInitTransformQuad(min_time)
+        if self.init_weights == 'time-cubic':
+            self.time_transformation_for_init = TimeInitTransformCubic(min_time)
+        if self.init_weights == 'time-context':
+            self.time_transformation_for_init = TimeInitTransformContext(min_time, total_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
@@ -325,7 +331,11 @@ class MemoryModel(torch.nn.Module):
         else:
             last_k_times = self.memory_bank.node_last_k_updated_times
             curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
-            weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
+            all_times = self.memory_bank.node_last_updated_times
+            if self.init_weights == 'time-context':
+                weights = self.time_transformation_for_init(time_diffs = last_k_times - curr_time, curr_time = curr_time, node_interact_times = all_times)
+            else:
+                weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
 
         if node_memories_ids.shape[0] == self.num_nodes:
             # get_updated_memories case
