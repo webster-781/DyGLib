@@ -387,7 +387,7 @@ class TimeInitTransform3Unite(nn.Module):
         self.exp = TimeInitTransformExp(min_time)
         self.linear = TimeInitTransformLinear(min_time)
         self.constant = 1
-        self.lamb1 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad= True)
+        self.lamb1 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad=True)
         self.lamb2 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad=True)
         self.lamb3 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad=True)
         self.min_time = min_time
@@ -396,7 +396,7 @@ class TimeInitTransform3Unite(nn.Module):
         exp_out = self.exp(time_diffs, curr_time)
         lin_out = self.linear(time_diffs, curr_time)
         constant = self.constant
-        total_out = 0.1 * (exp_out * self.lamb1  + lin_out * self.lamb2 + constant * self.lamb3)
+        total_out = 0.2 * (exp_out * self.lamb1  + lin_out * (1 - self.lamb1))
         return total_out
     
 class TimeInitTransformQuad(nn.Module):
@@ -451,16 +451,22 @@ class TimeInitTransformContext(nn.Module):
     def __init__(self, min_time, total_time):
         super(TimeInitTransformContext, self).__init__()
         # self.lin = nn.Linear(2, 1, bias = True)
+        # self.lin = nn.Sequential(
+        #     nn.Linear(2, 8, bias = True),
+        #     nn.LeakyReLU(),
+        #     nn.Dropout(),
+        #     nn.Linear(8, 8, bias = True),
+        #     nn.LeakyReLU(),
+        #     nn.Dropout(),
+        #     nn.Linear(8, 1, bias = True),
+        #     nn.Dropout(),
+        #     nn.LeakyReLU()
+        # )
         self.lin = nn.Sequential(
-            nn.Linear(2, 8, bias = True),
+            nn.Linear(2, 4, bias = True),
             nn.LeakyReLU(),
             nn.Dropout(),
-            nn.Linear(8, 8, bias = True),
-            nn.LeakyReLU(),
-            nn.Dropout(),
-            nn.Linear(8, 1, bias = True),
-            nn.Dropout(),
-            nn.LeakyReLU()
+            nn.Linear(4, 1, bias = True),
         )
         # self.lin.weight.data.fill_(0.1)
         self.min_time = min_time

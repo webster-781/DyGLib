@@ -1,7 +1,7 @@
 datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
 # datasets=("wikipedia" "reddit" "lastfm")
-gpu=2
-init_methods=("time-context")
+gpu=1
+init_methods=("time-3unite")
 
 # init_methods=("time-fourier" "time-mlp2" "time-exp" "time-mlp" "time-linear")
 cd /home/ayush/DyGLib/
