@@ -195,7 +195,8 @@ if __name__ == "__main__":
                 "use_init_method": args.use_init_method,
                 "t1_factor_of_t2": args.t1_factor_of_t2,
                 "init_weights": args.init_weights,
-                "clip_time_transformation": args.clip
+                "clip_time_transformation": args.clip,
+                "attfus": args.attfus
             },
             group="DygLib",
             name = run_name
@@ -282,7 +283,8 @@ if __name__ == "__main__":
                     min_time = min_time,
                     init_weights = args.init_weights,
                     use_init_method = args.use_init_method,
-                    total_time = total_time
+                    total_time = total_time,
+                    attfus = args.attfus
                 )
             elif args.model_name == "DecoLP":
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE

@@ -266,11 +266,12 @@ class TransformerEncoder(nn.Module):
         return outputs
 
 class TimeInitTransformExp(nn.Module):
-    def __init__(self, min_time):
+    def __init__(self, min_time, total_time):
         super(TimeInitTransformExp, self).__init__()
         self.lin = nn.Linear(1, 1, bias = False)
         self.lin.weight.data.fill_(1)
         self.lin.weight.requires_grad = True
+        self.total_time = total_time
         self.min_time = min_time
     
     def forward(self, time_diffs, curr_time):
@@ -288,11 +289,12 @@ class TimeInitTransformExp(nn.Module):
         return output
 
 class TimeInitTransformLinear(nn.Module):
-    def __init__(self, min_time):
+    def __init__(self, min_time, total_time):
         super(TimeInitTransformLinear, self).__init__()
         self.lin = nn.Linear(1, 1, bias = True)
         self.lin.weight.data.fill_(1)
         self.min_time = min_time
+        self.total_time = total_time
         self.lin.bias.data.fill_(1)
         self.lin.bias.requires_grad = False
     
@@ -310,11 +312,12 @@ class TimeInitTransformLinear(nn.Module):
         return output
     
 class TimeInitTransformFourier(nn.Module):
-    def __init__(self, min_time, k = 32):
+    def __init__(self, min_time, total_time, k = 32):
         super(TimeInitTransformFourier, self).__init__()
         self.lin = torch.nn.Parameter(torch.randn(2 * k), requires_grad = True)
         nn.init.uniform_(self.lin, a=0, b=1/np.sqrt(k))
         self.min_time = min_time
+        self.total_time = total_time
         self.mask = torch.nn.Parameter(torch.tensor([pow(2, (k//2)) * pow(1/2, l) for l in range(k)], dtype = torch.float32), requires_grad = False)
         self.k = k
     
@@ -334,7 +337,7 @@ class TimeInitTransformFourier(nn.Module):
         return output
     
 class TimeInitTransformMLP(nn.Module):
-    def __init__(self, min_time):
+    def __init__(self, min_time, total_time):
         super(TimeInitTransformMLP, self).__init__()
         self.mlp_for_time = nn.Sequential(
             nn.Linear(1, 1),
@@ -344,6 +347,7 @@ class TimeInitTransformMLP(nn.Module):
             nn.Linear(1, 1)
         )
         self.min_time = min_time
+        self.total_time = total_time
     
     def forward(self, time_diffs, curr_time):
         check_time = -1 - curr_time
@@ -358,7 +362,7 @@ class TimeInitTransformMLP(nn.Module):
         return self.mlp_for_time(zeros.unsqueeze(2)).reshape(*zeros.shape).sum(dim=1).reshape(-1)
         
 class TimeInitTransformMLP2(nn.Module):
-    def __init__(self, min_time, dim = 64):
+    def __init__(self, min_time, dim , total_time= 64):
         super(TimeInitTransformMLP2, self).__init__()
         self.mlp_for_time = nn.Sequential(
             nn.Linear(1, 64),
@@ -367,6 +371,7 @@ class TimeInitTransformMLP2(nn.Module):
             nn.Linear(64, 1)
         )
         self.min_time = min_time
+        self.total_time = total_time
     
     def forward(self, time_diffs, curr_time):
         check_time = -1 - curr_time
@@ -382,11 +387,12 @@ class TimeInitTransformMLP2(nn.Module):
         
         
 class TimeInitTransform3Unite(nn.Module):
-    def __init__(self, min_time, dim = 64):
+    def __init__(self, min_time, total_time,  dim = 64,):
         super(TimeInitTransform3Unite, self).__init__()
         self.exp = TimeInitTransformExp(min_time)
         self.linear = TimeInitTransformLinear(min_time)
         self.constant = 1
+        self.total_time = total_time
         self.lamb1 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad=True)
         self.lamb2 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad=True)
         self.lamb3 = nn.Parameter(torch.abs(torch.randn(1)), requires_grad=True)
@@ -400,11 +406,12 @@ class TimeInitTransform3Unite(nn.Module):
         return total_out
     
 class TimeInitTransformQuad(nn.Module):
-    def __init__(self, min_time):
+    def __init__(self, min_time, total_time):
         super(TimeInitTransformQuad, self).__init__()
         self.lin = nn.Linear(2, 1, bias = True)
         self.lin.weight.data.fill_(0.1)
         self.min_time = min_time
+        self.total_time = total_time
         self.lin.bias.data.fill_(0.5)
         self.lin.bias.requires_grad = False
     
@@ -424,11 +431,12 @@ class TimeInitTransformQuad(nn.Module):
         return output
 
 class TimeInitTransformCubic(nn.Module):
-    def __init__(self, min_time):
+    def __init__(self, min_time, total_time):
         super(TimeInitTransformCubic, self).__init__()
         self.lin = nn.Linear(3, 1, bias = True)
         self.lin.weight.data.fill_(0.1)
         self.min_time = min_time
+        self.total_time = total_time
         self.lin.bias.data.fill_(0.5)
         self.lin.bias.requires_grad = False
     
@@ -491,4 +499,48 @@ class TimeInitTransformContext(nn.Module):
         zeros = torch.zeros(n, k).to(time_diffs.device)
         zeros[mask] = lin_out[mask]
         output = torch.sum(zeros, dim = 1)
+        return output
+    
+TT_DICT = {
+    'time-exp': TimeInitTransformExp, 
+    'time-linear': TimeInitTransformLinear, 
+    'time-fourier': TimeInitTransformFourier, 
+    'time-mlp': TimeInitTransformMLP, 
+    'time-mlp2': TimeInitTransformMLP2, 
+    'time-3unite': TimeInitTransform3Unite, 
+    'time-quad': TimeInitTransformQuad, 
+    'time-cubic': TimeInitTransformCubic, 
+    'time-context':TimeInitTransformContext,
+    'degree': torch.nn.Identity,
+    'log-degree': torch.nn.Identity,
+}
+
+class AttentionFusion(torch.nn.Module):
+    def __init__(self, embed_dim: int):
+        super(AttentionFusion, self).__init__()
+        self.embed_dim = embed_dim
+        self.query_vector = torch.nn.Linear(in_features=embed_dim, out_features=1, bias=False)
+        self.linear = torch.nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=True)
+        self.tanh = nn.Tanh()
+        self.softmax = nn.Softmax(dim = 0)
+    
+    def forward(self, embeds: torch.Tensor, log_dict: dict):
+        # embeds shape (m, d): m - number of methods, d - embed_dim
+        m, d = embeds.shape
+        coeffs = self.query_vector(self.tanh(self.linear(embeds))).reshape(m)
+        attn_coeffs = self.softmax(coeffs)
+        if log_dict:
+            ac = attn_coeffs.clone().cpu().detach()
+            if 'num_adds' in log_dict:
+                log_dict['num_adds'] += 1
+            else:
+                log_dict['num_adds'] = 1
+            for i in range(len(attn_coeffs)):
+                if f'attn_coeffs{i}' in log_dict:
+                    log_dict[f'attn_coeffs{i}'] += ac[i].item()
+                else:
+                    log_dict[f'attn_coeffs{i}'] = ac[i].item()
+                log_dict[f'attn_coeffs{i}_avg'] = log_dict[f'attn_coeffs{i}']/log_dict['num_adds']
+            
+        output = (attn_coeffs.reshape(m, 1)*embeds).sum(dim = 0)
         return output
