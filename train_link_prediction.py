@@ -251,6 +251,9 @@ if __name__ == "__main__":
                     num_heads=args.num_heads,
                     dropout=args.dropout,
                     device=args.device,
+                    num_nodes=num_nodes,
+                    use_init_method=args.use_init_method,
+                    init_weights=args.init_weights,
                 )
             elif args.model_name in ["JODIE", "DyRep", "TGN"]:
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE
@@ -418,7 +421,7 @@ if __name__ == "__main__":
                 ]:
                     # training, only use training graph
                     model[0].set_neighbor_sampler(train_neighbor_sampler)
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                     # reinitialize memory of memory-based models at the start of each epoch
                     model[0].memory_bank.__init_memory_bank__()
 
@@ -450,6 +453,7 @@ if __name__ == "__main__":
                     if args.model_name in ["TGAT", "CAWN", "TCL"]:
                         # get temporal embedding of source and destination nodes
                         # two Tensors, with shape (batch_size, node_feat_dim)
+                        # x, y = model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=np.arange(0, num_nodes-1), dst_node_ids=np.arange(0, num_nodes-1), node_interact_times=np.zeros(num_nodes-1), num_neighbors=10)
                         batch_src_node_embeddings, batch_dst_node_embeddings = model[
                             0
                         ].compute_src_dst_node_temporal_embeddings(
@@ -470,7 +474,7 @@ if __name__ == "__main__":
                             node_interact_times=batch_node_interact_times,
                             num_neighbors=args.num_neighbors,
                         )
-                    elif args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                    elif args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                         wandb_log_dict['all_emb_mean'] = torch.mean(model[0].memory_bank.node_memories)
                         wandb_log_dict['all_emb_std'] = torch.std(model[0].memory_bank.node_memories)
                         
@@ -589,7 +593,7 @@ if __name__ == "__main__":
                     train_metrics.append(
                         get_link_prediction_metrics(predicts=predicts, labels=labels)
                     )
-                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                         # Tracking average precision metric wrt number of interaction of nodes
                         # Find out the counts of all nodes which used for prediction
                         pos_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids], model[0].memory_bank.node_interact_counts[batch_dst_node_ids]), dim = 0)
@@ -621,11 +625,11 @@ if __name__ == "__main__":
                         f"Epoch: {epoch + 1}, train for the {batch_idx + 1}-th batch, train loss: {loss.item()}"
                     )
 
-                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                         # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time
                         model[0].memory_bank.detach_memory_bank()
                 
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                     # backup memory bank after training so it can be used for new validation nodes
                     train_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
 
@@ -642,7 +646,7 @@ if __name__ == "__main__":
                     num_nodes=max_deg
                 )
 
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                     # backup memory bank after validating so it can be used for testing nodes (since test edges are strictly later in time than validation edges)
                     val_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
 
@@ -662,15 +666,16 @@ if __name__ == "__main__":
                     num_nodes=max_deg
                 )
                 
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
-                    train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
-                    wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
-                    val_histogram = get_wandb_histogram(val_hist)
-                    wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
-                    new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
-                    wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+                    # train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
+                    # wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
+                    # val_histogram = get_wandb_histogram(val_hist)
+                    # wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
+                    # new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
+                    # wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
+                    pass
                 
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                     # reload validation memory bank for testing nodes or saving models
                     # note that since model treats memory as parameters, we need to reload the memory to val_backup_memory_bank for saving models
                     model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
@@ -722,9 +727,9 @@ if __name__ == "__main__":
                         time_gap=args.time_gap,
                         num_nodes=max_deg
                     )
-                    max_deg = max(torch.max(test_hist[2].nonzero()), torch.max(test_hist[2].nonzero())) + 100
+                    # max_deg = max(torch.max(test_hist[2].nonzero()), torch.max(test_hist[2].nonzero())) + 100
 
-                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                         # reload validation memory bank for new testing nodes
                         model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
 
@@ -745,12 +750,12 @@ if __name__ == "__main__":
                         num_nodes=max_deg
                     )
                     
-                    test_histogram = get_wandb_histogram(test_hist)
-                    wandb_log_dict[f'test_acc_hist'] = wandb.Histogram(np_histogram=test_histogram)
-                    new_node_test_histogram = get_wandb_histogram(new_node_test_hist)
-                    wandb_log_dict[f'new node test_acc_hist'] = wandb.Histogram(np_histogram=new_node_test_histogram)
+                    # test_histogram = get_wandb_histogram(test_hist)
+                    # wandb_log_dict[f'test_acc_hist'] = wandb.Histogram(np_histogram=test_histogram)
+                    # new_node_test_histogram = get_wandb_histogram(new_node_test_hist)
+                    # wandb_log_dict[f'new node test_acc_hist'] = wandb.Histogram(np_histogram=new_node_test_histogram)
 
-                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                         # reload validation memory bank for testing nodes or saving models
                         # note that since model treats memory as parameters, we need to reload the memory to val_backup_memory_bank for saving models
                         model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
@@ -803,7 +808,7 @@ if __name__ == "__main__":
             logger.info(f"get final performance on dataset {args.dataset_name}...")
 
             # the saved best model of memory-based models cannot perform validation since the stored memory has been updated by validation data
-            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                 val_losses, val_metrics, val_hist,  = evaluate_model_link_prediction(
                     model_name=args.model_name,
                     model=model,
@@ -830,7 +835,7 @@ if __name__ == "__main__":
                     num_nodes=max_deg
                 )
 
-            if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+            if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                 # the memory in the best model has seen the validation edges, we need to backup the memory for new testing nodes
                 val_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
 
@@ -847,7 +852,7 @@ if __name__ == "__main__":
                 num_nodes=max_deg
             )
 
-            if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+            if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                 # reload validation memory bank for new testing nodes
                 model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
 
@@ -871,7 +876,7 @@ if __name__ == "__main__":
                 new_node_test_metric_dict,
             ) = ({}, {}, {}, {})
 
-            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                 logger.info(f"validate loss: {np.nanmean(val_losses):.4f}")
                 for metric_name in val_metrics[0].keys():
                     average_val_metric = np.nanmean(
@@ -917,7 +922,7 @@ if __name__ == "__main__":
             single_run_time = time.time() - run_start_time
             logger.info(f"Run {run + 1} cost {single_run_time:.2f} seconds.")
 
-            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                 val_metric_all_runs.append(val_metric_dict)
                 new_node_val_metric_all_runs.append(new_node_val_metric_dict)
             test_metric_all_runs.append(test_metric_dict)
@@ -929,7 +934,7 @@ if __name__ == "__main__":
                 logger.removeHandler(ch)
 
             # save model result
-            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
                 result_json = {
                     "validate metrics": {
                         metric_name: f"{val_metric_dict[metric_name]:.4f}"
@@ -997,7 +1002,7 @@ if __name__ == "__main__":
     # store the average metrics at the log of the last run
     logger.info(f"metrics over {args.num_runs} runs:")
 
-    if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP"]:
+    if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
         for metric_name in val_metric_all_runs[0].keys():
             logger.info(
                 f"validate {metric_name}, {[val_metric_single_run[metric_name] for val_metric_single_run in val_metric_all_runs]}"

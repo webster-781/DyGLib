@@ -3,13 +3,14 @@ import torch
 import torch.nn as nn
 
 from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention
-from utils.utils import NeighborSampler
+from utils.utils import NeighborSampler, get_latest_unique_indices, vectorized_update_mem_2d
+from models.MemoryModel import MemoryBank
 
 
 class TGAT(nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1, device: str = 'cpu'):
+                 time_feat_dim: int, num_nodes: int, use_init_method: bool, init_weights: str, num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1, device: str = 'cpu'):
         """
         TGAT model.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -33,6 +34,11 @@ class TGAT(nn.Module):
         self.num_layers = num_layers
         self.num_heads = num_heads
         self.dropout = dropout
+        self.device = device
+        # * For init method * #
+        self.memory_bank = MemoryBank(num_nodes = num_nodes, memory_dim = 1, device = self.device, k = 20)
+        self.use_init_method = use_init_method
+        self.init_weights = init_weights
 
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
 
@@ -61,6 +67,22 @@ class TGAT(nn.Module):
         # Tensor, shape (batch_size, node_feat_dim)
         dst_node_embeddings = self.compute_node_temporal_embeddings(node_ids=dst_node_ids, node_interact_times=node_interact_times,
                                                                     current_layer_num=self.num_layers, num_neighbors=num_neighbors)
+        
+        src_unique_ids, src_latest_indices = get_latest_unique_indices(torch.from_numpy(src_node_ids))
+        dst_unique_ids, dst_latest_indices = get_latest_unique_indices(torch.from_numpy(dst_node_ids))
+
+        self.memory_bank.node_last_updated_times[src_unique_ids] = torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device)
+        self.memory_bank.node_last_updated_times[dst_unique_ids] = torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device)
+
+        self.memory_bank.node_last_k_updated_times[src_unique_ids] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[src_unique_ids], torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device))
+        self.memory_bank.node_last_k_updated_times[dst_unique_ids] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[dst_unique_ids], torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device))
+
+        self.memory_bank.is_node_seen[src_node_ids] = True
+        self.memory_bank.is_node_seen[dst_node_ids] = True
+
+        self.memory_bank.node_interact_counts = self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(src_node_ids).to(self.device), torch.ones_like(torch.from_numpy(src_node_ids), device = self.device))
+        self.memory_bank.node_interact_counts = self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(dst_node_ids).to(self.device), torch.ones_like(torch.from_numpy(dst_node_ids), device = self.device))
+        
         return src_node_embeddings, dst_node_embeddings
 
     def compute_node_temporal_embeddings(self, node_ids: np.ndarray, node_interact_times: np.ndarray,

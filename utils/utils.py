@@ -1003,3 +1003,10 @@ def smooth_tensor(x):
         end_index = min(len(x), idx.item() + 11)
         new_x[idx] = torch.nanmean(x[start_index:end_index])
     return new_x
+
+def get_latest_unique_indices(tensor):
+    unique, inverse = torch.unique(tensor, sorted=True, return_inverse=True)
+    perm = torch.arange(inverse.size(0), dtype=inverse.dtype, device=inverse.device)
+    inverse, perm = inverse, perm
+    perm = inverse.new_empty(unique.size(0)).scatter_(0, inverse, perm)
+    return unique, perm
