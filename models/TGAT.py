@@ -1,8 +1,10 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import math
 
-from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention
+from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear
+
 from utils.utils import NeighborSampler, get_latest_unique_indices, vectorized_update_mem_2d
 from models.MemoryModel import MemoryBank
 
@@ -10,7 +12,7 @@ from models.MemoryModel import MemoryBank
 class TGAT(nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, num_nodes: int, use_init_method: bool, init_weights: str, num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1, device: str = 'cpu'):
+                 time_feat_dim: int, num_nodes: int, use_init_method: bool, init_weights: str, time_partitioned_node_degrees: torch.Tensor, min_time: float,                  num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1, device: str = 'cpu'):
         """
         TGAT model.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -39,6 +41,13 @@ class TGAT(nn.Module):
         self.memory_bank = MemoryBank(num_nodes = num_nodes, memory_dim = 1, device = self.device, k = 20)
         self.use_init_method = use_init_method
         self.init_weights = init_weights
+        self.time_partitioned_node_degrees = time_partitioned_node_degrees
+        self.min_time = min_time
+        if self.init_weights:
+            if self.init_weights == 'time-exp':
+                self.time_transformation_for_init = TimeInitTransformExp(min_time)
+            if self.init_weights == 'time-linear':
+                self.time_transformation_for_init = TimeInitTransformLinear(min_time)
 
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
 
@@ -167,3 +176,69 @@ class TGAT(nn.Module):
         if self.neighbor_sampler.sample_neighbor_strategy in ['uniform', 'time_interval_aware']:
             assert self.neighbor_sampler.seed is not None
             self.neighbor_sampler.reset_random_state()
+
+    def get_init_node_memory_from_degree(self, node_ids, node_memories, node_memories_ids, node_interact_times, log_dict):
+        """
+        Updates the unseen nodes' embeddings to have a weighted average of embeddings of highly interacting nodes.
+        node_ids: which node_ids are relevant
+        node_memories: to update into and to calculate weighted average from
+        """
+        node_memories_ids = torch.from_numpy(node_memories_ids)
+        node_ids = torch.from_numpy(node_ids).to(self.device)
+        
+        if self.init_weights in ['degree', 'log-degree'] and self.time_partitioned_node_degrees is None:
+            return node_memories_ids.cpu().detach().numpy(), node_memories
+        
+        node_memories_ids = node_memories_ids.to(self.device)
+        weights = None
+        # If initialisation weight is degree or log degree
+        if self.init_weights == 'degree' or self.init_weights == 'log-degree':
+            num_partitions_total = self.time_partitioned_node_degrees.shape[0]
+            check_time = float(torch.min(torch.from_numpy(node_interact_times)))
+            partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.min_time) - 1
+            weights = self.time_partitioned_node_degrees[partition_num].clone()
+            if self.init_weights == 'log-degree':
+                weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
+        
+        # If initialisation weight is expontential decay or linear decay
+        else:
+            last_k_times = self.memory_bank.node_last_k_updated_times
+            curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
+            weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
+
+        if node_memories_ids.shape[0] == self.num_nodes:
+            # get_updated_memories case
+            use_node_memories = node_memories
+        else:
+            # update_memories case
+            use_node_memories = self.memory_bank.node_memories.clone()
+            if node_memories_ids.shape[0] > 0:
+                use_node_memories[node_memories_ids] = node_memories
+        
+        # to_use_node_memories = self.emb_proj(use_node_memories.clone())
+        to_use_node_memories = use_node_memories.clone()
+        
+        if weights is not None and torch.any(weights != 0):
+            new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0) / weights.sum()
+            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
+            new_init_repeated = new_init.reshape(-1, 172).repeat(to_use_node_memories.shape[0], 1)
+            mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
+            mask[new_node_ids] = 1
+            # breakpoint()
+            if log_dict:
+                log_dict['new_init_mean'] = torch.mean(new_init_repeated)
+                log_dict['new_init_std'] = torch.std(new_init_repeated)
+            # Update memories
+            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
+        else:
+            # first interval case
+            return node_memories_ids.cpu().detach().numpy(), node_memories
+        
+        if node_memories_ids.shape[0] == self.num_nodes:
+            return node_memories_ids.cpu().detach().numpy(), use_node_memories
+        else:
+            if node_memories_ids.shape[0] > 0:
+                node_ids_to_update = node_memories_ids
+            else:
+                node_ids_to_update = new_node_ids
+            return node_ids_to_update.cpu().detach().numpy(), use_node_memories[node_ids_to_update]
