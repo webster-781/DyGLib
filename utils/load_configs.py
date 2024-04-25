@@ -68,7 +68,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     if args.model_name == 'EdgeBank':
         assert is_evaluation, 'EdgeBank is only applicable for evaluation!'
 
-    if len(args.init_weights) == 1:
+    if not args.attfus and len(args.init_weights) == 1:
         args.init_weights = args.init_weights[0]
     
     if args.load_best_configs:

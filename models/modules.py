@@ -527,6 +527,8 @@ class AttentionFusion(torch.nn.Module):
     def forward(self, embeds: torch.Tensor, log_dict: dict):
         # embeds shape (m, d): m - number of methods, d - embed_dim
         m, d = embeds.shape
+        if m == 1:
+            return embeds.reshape(-1)
         coeffs = self.query_vector(self.tanh(self.linear(embeds))).reshape(m)
         attn_coeffs = self.softmax(coeffs)
         if log_dict:

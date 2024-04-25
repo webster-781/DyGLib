@@ -15,7 +15,7 @@ class MemoryModel(torch.nn.Module):
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
                  device: str = 'cpu', init_weights: str = 'degree', use_init_method = False,
-                 attfus = False):
+                 attfus = True):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -357,6 +357,7 @@ class MemoryModel(torch.nn.Module):
         # to_use_node_memories = self.emb_proj(use_node_memories.clone())
         to_use_node_memories = use_node_memories.clone()
         if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for w in weights])):
+            # all the methods should give non-zero weights
             new_inits = []
             for weigh in weights:
                 new_inits.append(((weigh.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0) / weigh.sum()).unsqueeze(0))
