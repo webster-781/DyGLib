@@ -359,11 +359,17 @@ class MemoryModel(torch.nn.Module):
         if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for w in weights])):
             # all the methods should give non-zero weights
             new_inits = []
-            for weigh in weights:
-                new_inits.append(((weigh.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0) / weigh.sum()).unsqueeze(0))
-            new_init_embeds = torch.cat(new_inits, dim = 0)
-            new_init = self.attfus(new_init_embeds, log_dict)
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
+            samples = self.sample_nodes_acc_to_degree(num_samples = new_node_ids.shape[0])
+            # shape: (num_samples, num_nodes_per_sample)
+            for weigh in weights:
+                mems = to_use_node_memories[samples]
+                ws = weigh[samples]
+                new_node_init = (ws.unsqueeze(2) * mems).sum(dim = 0) / ws.sum(dim = 1).reshape(-1, 1)
+                # Take weighted average for each sample
+                new_inits.append(new_node_init.unsqueeze(1))
+            new_init_embeds = torch.cat(new_inits, dim = 1)
+            new_init = self.attfus(new_init_embeds, log_dict)
             new_init_repeated = new_init.reshape(-1, 172).repeat(to_use_node_memories.shape[0], 1)
             mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
@@ -374,17 +380,17 @@ class MemoryModel(torch.nn.Module):
             # Update memories
             use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
         elif not self.attfus and weights is not None and torch.any(weights != 0):
-            new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0) / weights.sum()
+            new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0)/weights.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            new_init_repeated = new_init.reshape(-1, 172).repeat(to_use_node_memories.shape[0], 1)
+            new_init_repeated = torch.zeros_like(to_use_node_memories)
+            new_init_repeated[new_node_ids] += new_init
             mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
-            # breakpoint()
+            # Update memories
+            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * new_init_repeated.clone())
             if log_dict:
                 log_dict['new_init_mean'] = torch.mean(new_init_repeated)
                 log_dict['new_init_std'] = torch.std(new_init_repeated)
-            # Update memories
-            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
         else:
             # first interval case
             return node_memories_ids.cpu().detach().numpy(), node_memories
@@ -398,6 +404,12 @@ class MemoryModel(torch.nn.Module):
                 node_ids_to_update = new_node_ids
             return node_ids_to_update.cpu().detach().numpy(), use_node_memories[node_ids_to_update]
 
+    def sample_nodes_acc_to_degree(self, num_samples, num_nodes_per_sample = 200):
+        # Sample nodes 
+        probs = self.memory_bank.node_interact_counts ** 0.75
+        samples = torch.multinomial(probs.reshape(1, -1).repeat(num_samples, 1), num_nodes_per_sample, replacement = False)
+        return samples
+        
 # Message-related Modules
 class MessageAggregator(nn.Module):
 
