@@ -526,7 +526,7 @@ class AttentionFusion(torch.nn.Module):
 
     def forward(self, embeds: torch.Tensor, log_dict: dict):
         # embeds shape (n, m, d): n - number of nodes, m - number of methods, d - embed_dim
-        m, n, d = embeds.shape
+        n, m, d = embeds.shape
         if m == 1:
             return embeds.squeeze(0)
         coeffs = self.query_vector(self.tanh(self.linear(embeds))).reshape(n, m)
@@ -544,6 +544,7 @@ class AttentionFusion(torch.nn.Module):
                 else:
                     log_dict[f'attn_coeffs{i}'] = ac[i].sum()
                 log_dict[f'attn_coeffs{i}_avg'] = log_dict[f'attn_coeffs{i}']/log_dict['num_adds']
-            
+            del ac
         output = (attn_coeffs.unsqueeze(2)*embeds).sum(dim = 1).squeeze()
+        del coeffs, attn_coeffs, 
         return output

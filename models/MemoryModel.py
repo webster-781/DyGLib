@@ -356,31 +356,41 @@ class MemoryModel(torch.nn.Module):
         
         # to_use_node_memories = self.emb_proj(use_node_memories.clone())
         to_use_node_memories = use_node_memories.clone()
-        if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for w in weights])):
+        if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for ws in weights for w in ws])):
+            breakpoint()
             # all the methods should give non-zero weights
             new_inits = []
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            samples = self.sample_nodes_acc_to_degree(num_samples = new_node_ids.shape[0])
+            if self.training:
+                num_samples = 32
+                num_nodes_per_sample = 200
+            else:
+                num_samples = 2
+                num_nodes_per_sample = self.num_nodes
+            samples = self.sample_nodes_acc_to_degree(num_samples=num_samples, num_nodes_per_sample=num_nodes_per_sample)
             # shape: (num_samples, num_nodes_per_sample)
             for weigh in weights:
                 mems = to_use_node_memories[samples]
                 ws = weigh[samples]
-                new_node_init = (ws.unsqueeze(2) * mems).sum(dim = 0) / ws.sum(dim = 1).reshape(-1, 1)
+                new_node_init = (ws.unsqueeze(2) * mems).sum(dim = 1) / ws.sum(dim = 1).reshape(-1, 1)
                 # Take weighted average for each sample
                 new_inits.append(new_node_init.unsqueeze(1))
             new_init_embeds = torch.cat(new_inits, dim = 1)
             # Run attention fusion operation
             new_init = self.attfus(new_init_embeds, log_dict)
             new_init_repeated = torch.zeros_like(to_use_node_memories)
+            new_init = new_init[torch.randperm(new_node_ids.shape[0]) % num_samples]
             new_init_repeated[new_node_ids] += new_init
             mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
             # Update memories by adding new init for new nodes
-            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * new_init_repeated.clone())
+            cloned = new_init_repeated.clone()
+            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * cloned)
             if log_dict:
-                log_dict['new_init_mean'] = torch.mean(new_init_repeated)
-                log_dict['new_init_std'] = torch.std(new_init_repeated)
-                
+                log_dict['new_init_mean'] = torch.mean(new_init_repeated.detach())
+                log_dict['new_init_std'] = torch.std(new_init_repeated.detach())
+            breakpoint()
+            del new_init_repeated, cloned, mask, new_init, new_init_embeds, new_inits, samples, weights, to_use_node_memories
         elif not self.attfus and weights is not None and torch.any(weights != 0):
             new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0)/weights.sum()
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
