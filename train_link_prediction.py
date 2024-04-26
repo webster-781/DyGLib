@@ -255,6 +255,8 @@ if __name__ == "__main__":
                     num_nodes=num_nodes,
                     use_init_method=args.use_init_method,
                     init_weights=args.init_weights,
+                    attfus=args.attfus,
+                    total_time=total_time
                 )
             elif args.model_name in ["JODIE", "DyRep", "TGN"]:
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE
@@ -457,7 +459,33 @@ if __name__ == "__main__":
 
                     # we need to compute for positive and negative edges respectively, because the new sampling strategy (for evaluation) allows the negative source nodes to be
                     # different from the source nodes, this is different from previous works that just replace destination nodes with negative destination nodes
-                    if args.model_name in ["TGAT", "CAWN", "TCL"]:
+                    if args.model_name == "TGAT":
+                        # get temporal embedding of source and destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        # x, y = model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=np.arange(0, num_nodes-1), dst_node_ids=np.arange(0, num_nodes-1), node_interact_times=np.zeros(num_nodes-1), num_neighbors=10)
+                        batch_src_node_embeddings, batch_dst_node_embeddings = model[
+                            0
+                        ].compute_src_dst_node_temporal_embeddings(
+                            src_node_ids=batch_src_node_ids,
+                            dst_node_ids=batch_dst_node_ids,
+                            node_interact_times=batch_node_interact_times,
+                            num_neighbors=args.num_neighbors,
+                            edges_are_positive=True
+                        )
+
+                        # get temporal embedding of negative source and negative destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        (
+                            batch_neg_src_node_embeddings,
+                            batch_neg_dst_node_embeddings,
+                        ) = model[0].compute_src_dst_node_temporal_embeddings(
+                            src_node_ids=batch_neg_src_node_ids,
+                            dst_node_ids=batch_neg_dst_node_ids,
+                            node_interact_times=batch_node_interact_times,
+                            num_neighbors=args.num_neighbors,
+                            edges_are_positive=False
+                        )
+                    elif args.model_name in ["CAWN", "TCL"]:
                         # get temporal embedding of source and destination nodes
                         # two Tensors, with shape (batch_size, node_feat_dim)
                         # x, y = model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=np.arange(0, num_nodes-1), dst_node_ids=np.arange(0, num_nodes-1), node_interact_times=np.zeros(num_nodes-1), num_neighbors=10)
@@ -680,16 +708,7 @@ if __name__ == "__main__":
                     time_gap=args.time_gap,
                     num_nodes=max_deg
                 )
-                
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
-                    # train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
-                    # wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
-                    # val_histogram = get_wandb_histogram(val_hist)
-                    # wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
-                    # new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
-                    # wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
-                    pass
-                
+
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                     # reload validation memory bank for testing nodes or saving models
                     # note that since model treats memory as parameters, we need to reload the memory to val_backup_memory_bank for saving models

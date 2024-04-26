@@ -538,11 +538,11 @@ class AttentionFusion(torch.nn.Module):
                 log_dict['num_adds'] += n
             else:
                 log_dict['num_adds'] = n
-            for i in range(len(attn_coeffs)):
+            for i in range(attn_coeffs.shape[1]):
                 if f'attn_coeffs{i}' in log_dict:
-                    log_dict[f'attn_coeffs{i}'] += ac[i].sum()
+                    log_dict[f'attn_coeffs{i}'] += ac[:, i].sum()
                 else:
-                    log_dict[f'attn_coeffs{i}'] = ac[i].sum()
+                    log_dict[f'attn_coeffs{i}'] = ac[:, i].sum()
                 log_dict[f'attn_coeffs{i}_avg'] = log_dict[f'attn_coeffs{i}']/log_dict['num_adds']
             del ac
         output = (attn_coeffs.unsqueeze(2)*embeds).sum(dim = 1).squeeze()
