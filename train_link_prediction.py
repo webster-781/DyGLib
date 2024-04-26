@@ -256,7 +256,9 @@ if __name__ == "__main__":
                     use_init_method=args.use_init_method,
                     init_weights=args.init_weights,
                     attfus=args.attfus,
-                    total_time=total_time
+                    total_time=total_time,
+                    time_partitioned_node_degrees=time_partitioned_node_degrees,
+                    min_time=min_time,
                 )
             elif args.model_name in ["JODIE", "DyRep", "TGN"]:
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE
@@ -748,7 +750,7 @@ if __name__ == "__main__":
                     )
 
                 # perform testing once after test_interval_epochs
-                if (epoch + 1) % args.test_interval_epochs == 0:
+                if (epoch + 1) % 1 == 0:
                     test_losses, test_metrics, test_hist = evaluate_model_link_prediction(
                         model_name=args.model_name,
                         model=model,

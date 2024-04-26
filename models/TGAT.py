@@ -12,7 +12,7 @@ from models.MemoryModel import MemoryBank
 class TGAT(nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, num_nodes: int, use_init_method: bool, init_weights: str, time_partitioned_node_degrees: torch.Tensor, min_time: float, total_time:float, num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1, device: str = 'cpu'):
+                 time_feat_dim: int, num_nodes: int, use_init_method: bool, init_weights: str, time_partitioned_node_degrees: torch.Tensor, min_time: float, total_time:float, attfus:bool=True, num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1, device: str = 'cpu'):
         """
         TGAT model.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -76,10 +76,11 @@ class TGAT(nn.Module):
         dst_node_embeddings = self.compute_node_temporal_embeddings(node_ids=dst_node_ids, node_interact_times=node_interact_times,
                                                                     current_layer_num=self.num_layers, num_neighbors=num_neighbors)
         
-        all_embeddings = torch.cat([src_node_embeddings, dst_node_embeddings], dim = 0)
-        all_node_ids = torch.cat(src_node_ids, dst_node_ids)
-        updated_embeddings = self.get_init_node_memory_from_degree(node_ids=all_node_ids, node_memories=all_embeddings, node_interact_times=node_interact_times, log_dict=log_dict)
-        src_node_embeddings, dst_node_embeddings = updated_embeddings[:src_node_embeddings.shape[0]], updated_embeddings[src_node_embeddings.shape[0]:]
+        if self.use_init_method:
+            all_embeddings = torch.cat([src_node_embeddings, dst_node_embeddings], dim = 0)
+            all_node_ids = np.concatenate([src_node_ids, dst_node_ids])
+            updated_embeddings = self.get_init_node_memory_from_degree(node_ids=all_node_ids, node_memories=all_embeddings, node_interact_times=node_interact_times, log_dict=log_dict)
+            src_node_embeddings, dst_node_embeddings = updated_embeddings[:src_node_embeddings.shape[0]], updated_embeddings[src_node_embeddings.shape[0]:]
         
         if edges_are_positive:
             src_unique_ids, src_latest_indices = get_latest_unique_indices(torch.from_numpy(src_node_ids))
@@ -194,13 +195,11 @@ class TGAT(nn.Module):
         node_ids: which node_ids are relevant
         node_memories: to update into and to calculate weighted average from
         """
-        node_memories_ids = torch.from_numpy(node_memories_ids)
         node_ids = torch.from_numpy(node_ids).to(self.device)
         
         if self.time_partitioned_node_degrees is None:
-            return node_memories_ids.cpu().detach().numpy(), node_memories
+            return node_memories
         
-        node_memories_ids = node_memories_ids.to(self.device)
         weights = None
         # ****** GENERATE WEIGHTS FOR ALL NODES ******** #
         # If initialisation weight is degree or log degree
@@ -265,5 +264,4 @@ class TGAT(nn.Module):
                 log_dict['new_init_mean'] = torch.mean(new_init_repeated.detach())
                 log_dict['new_init_std'] = torch.std(new_init_repeated.detach())
             del new_init_repeated, cloned, mask, new_init, new_init_embeds, new_inits, samples, weights, to_use_node_memories
-        else:
-            return node_memories_ids.cpu().detach().numpy(), node_memories
+        return node_memories

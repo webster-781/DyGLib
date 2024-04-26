@@ -67,7 +67,25 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
 
             # we need to compute for positive and negative edges respectively, because the new sampling strategy (for evaluation) allows the negative source nodes to be
             # different from the source nodes, this is different from previous works that just replace destination nodes with negative destination nodes
-            if model_name in ['TGAT', 'CAWN', 'TCL']:
+            if model_name == 'TGAT':
+                # get temporal embedding of source and destination nodes
+                # two Tensors, with shape (batch_size, node_feat_dim)
+                batch_src_node_embeddings, batch_dst_node_embeddings = \
+                    model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=batch_src_node_ids,
+                                                                      dst_node_ids=batch_dst_node_ids,
+                                                                      node_interact_times=batch_node_interact_times,
+                                                                      num_neighbors=num_neighbors,
+                                                                      edges_are_positive=True)
+
+                # get temporal embedding of negative source and negative destination nodes
+                # two Tensors, with shape (batch_size, node_feat_dim)
+                batch_neg_src_node_embeddings, batch_neg_dst_node_embeddings = \
+                    model[0].compute_src_dst_node_temporal_embeddings(src_node_ids=batch_neg_src_node_ids,
+                                                                      dst_node_ids=batch_neg_dst_node_ids,
+                                                                      node_interact_times=batch_node_interact_times,
+                                                                      num_neighbors=num_neighbors,
+                                                                      edges_are_positive=False)
+            elif model_name in ['CAWN', 'TCL']:
                 # get temporal embedding of source and destination nodes
                 # two Tensors, with shape (batch_size, node_feat_dim)
                 batch_src_node_embeddings, batch_dst_node_embeddings = \
@@ -162,7 +180,7 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
             predicts = torch.cat([positive_probabilities, negative_probabilities], dim=0)
             labels = torch.cat([torch.ones_like(positive_probabilities), torch.zeros_like(negative_probabilities)], dim=0)
             
-            if model_name in ['JODIE', 'DyRep', 'TGN', 'DecoLP', 'DyGFormer']:
+            if model_name in ['JODIE', 'DyRep', 'TGN', 'DecoLP', 'DyGFormer', 'TGAT']:
                 # Tracking average precision metric wrt number of interaction of nodes
                 # Find out the counts of all nodes which used for prediction
                 pos_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids], model[0].memory_bank.node_interact_counts[batch_dst_node_ids]), dim = 0)
@@ -181,8 +199,7 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
                     neg_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids[neg_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids[neg_corr_intrs.cpu()]].reshape(-1)))
                     neg_corr.scatter_add_(0, neg_interact_corr_counts, torch.ones_like(neg_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
                 # Add 1 to each index for `corr` examples counting.
-                    
-                        
+
             loss = loss_func(input=predicts, target=labels)
 
             evaluate_losses.append(loss.item())
