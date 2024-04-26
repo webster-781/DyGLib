@@ -1,5 +1,7 @@
-datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
-# datasets=("ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
+# datasets=("ia-retweet-pol" "ia-reality-call" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m" "ia-escorts-dynamic" "ia-digg-reply")
+# datasets=("ia-digg-reply" "ia-retweet-pol" "ia-reality-call" "ia-escorts-dynamic")
+datasets=("wikipedia" "reddit" "lastfm")
+
 gpu=2
 init_methods=("time-exp")
 cd /home/ayush/DyGLib/

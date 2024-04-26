@@ -123,3 +123,4 @@ DG_data/
 scripts/corr_figs/
 csvs/
 scripts/logs/
+/**/nohup.out

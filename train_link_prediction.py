@@ -195,7 +195,8 @@ if __name__ == "__main__":
                 "use_init_method": args.use_init_method,
                 "t1_factor_of_t2": args.t1_factor_of_t2,
                 "init_weights": args.init_weights,
-                "clip_time_transformation": args.clip
+                "clip_time_transformation": args.clip,
+                "attfus": args.attfus
             },
             group="DygLib",
             name = run_name
@@ -284,7 +285,9 @@ if __name__ == "__main__":
                     time_partitioned_node_degrees = time_partitioned_node_degrees,
                     min_time = min_time,
                     init_weights = args.init_weights,
-                    use_init_method = args.use_init_method
+                    use_init_method = args.use_init_method,
+                    total_time = total_time,
+                    attfus = args.attfus
                 )
             elif args.model_name == "DecoLP":
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE
@@ -365,6 +368,10 @@ if __name__ == "__main__":
                     dropout=args.dropout,
                     max_input_sequence_length=args.max_input_sequence_length,
                     device=args.device,
+                    use_init_method=args.use_init_method,
+                    init_weights=args.init_weights,
+                    time_partitioned_node_degrees = time_partitioned_node_degrees,
+                    min_time = min_time,
                 )
             else:
                 raise ValueError(f"Wrong value for model_name {args.model_name}!")
@@ -535,16 +542,8 @@ if __name__ == "__main__":
                             time_gap=args.time_gap,
                         )
                     elif args.model_name in ["DyGFormer"]:
-                        # get temporal embedding of source and destination nodes
-                        # two Tensors, with shape (batch_size, node_feat_dim)
-                        batch_src_node_embeddings, batch_dst_node_embeddings = model[
-                            0
-                        ].compute_src_dst_node_temporal_embeddings(
-                            src_node_ids=batch_src_node_ids,
-                            dst_node_ids=batch_dst_node_ids,
-                            node_interact_times=batch_node_interact_times,
-                        )
-
+                        wandb_log_dict['all_emb_mean'] = torch.mean(model[0].memory_bank.node_memories)
+                        wandb_log_dict['all_emb_std'] = torch.std(model[0].memory_bank.node_memories)
                         # get temporal embedding of negative source and negative destination nodes
                         # two Tensors, with shape (batch_size, node_feat_dim)
                         (
@@ -554,7 +553,23 @@ if __name__ == "__main__":
                             src_node_ids=batch_neg_src_node_ids,
                             dst_node_ids=batch_neg_dst_node_ids,
                             node_interact_times=batch_node_interact_times,
+                            edges_are_positive=False,
+                            log_dict = wandb_log_dict
                         )
+                        
+                        
+                        # get temporal embedding of source and destination nodes
+                        # two Tensors, with shape (batch_size, node_feat_dim)
+                        batch_src_node_embeddings, batch_dst_node_embeddings = model[
+                            0
+                        ].compute_src_dst_node_temporal_embeddings(
+                            src_node_ids=batch_src_node_ids,
+                            dst_node_ids=batch_dst_node_ids,
+                            node_interact_times=batch_node_interact_times,
+                            edges_are_positive=True,
+                            log_dict = wandb_log_dict
+                        )
+
                     else:
                         raise ValueError(f"Wrong value for model_name {args.model_name}!")
                     # get positive and negative probabilities, shape (batch_size, )
@@ -593,7 +608,7 @@ if __name__ == "__main__":
                     train_metrics.append(
                         get_link_prediction_metrics(predicts=predicts, labels=labels)
                     )
-                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer", "TGAT"]:
                         # Tracking average precision metric wrt number of interaction of nodes
                         # Find out the counts of all nodes which used for prediction
                         pos_interact_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids], model[0].memory_bank.node_interact_counts[batch_dst_node_ids]), dim = 0)
@@ -625,11 +640,11 @@ if __name__ == "__main__":
                         f"Epoch: {epoch + 1}, train for the {batch_idx + 1}-th batch, train loss: {loss.item()}"
                     )
 
-                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                         # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time
                         model[0].memory_bank.detach_memory_bank()
                 
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                     # backup memory bank after training so it can be used for new validation nodes
                     train_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
 
@@ -646,7 +661,7 @@ if __name__ == "__main__":
                     num_nodes=max_deg
                 )
 
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                     # backup memory bank after validating so it can be used for testing nodes (since test edges are strictly later in time than validation edges)
                     val_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
 
@@ -675,7 +690,7 @@ if __name__ == "__main__":
                     # wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
                     pass
                 
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                     # reload validation memory bank for testing nodes or saving models
                     # note that since model treats memory as parameters, we need to reload the memory to val_backup_memory_bank for saving models
                     model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
@@ -729,7 +744,7 @@ if __name__ == "__main__":
                     )
                     # max_deg = max(torch.max(test_hist[2].nonzero()), torch.max(test_hist[2].nonzero())) + 100
 
-                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                         # reload validation memory bank for new testing nodes
                         model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
 
@@ -755,7 +770,7 @@ if __name__ == "__main__":
                     # new_node_test_histogram = get_wandb_histogram(new_node_test_hist)
                     # wandb_log_dict[f'new node test_acc_hist'] = wandb.Histogram(np_histogram=new_node_test_histogram)
 
-                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+                    if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                         # reload validation memory bank for testing nodes or saving models
                         # note that since model treats memory as parameters, we need to reload the memory to val_backup_memory_bank for saving models
                         model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
@@ -808,7 +823,7 @@ if __name__ == "__main__":
             logger.info(f"get final performance on dataset {args.dataset_name}...")
 
             # the saved best model of memory-based models cannot perform validation since the stored memory has been updated by validation data
-            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                 val_losses, val_metrics, val_hist,  = evaluate_model_link_prediction(
                     model_name=args.model_name,
                     model=model,
@@ -835,7 +850,7 @@ if __name__ == "__main__":
                     num_nodes=max_deg
                 )
 
-            if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+            if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                 # the memory in the best model has seen the validation edges, we need to backup the memory for new testing nodes
                 val_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
 
@@ -852,7 +867,7 @@ if __name__ == "__main__":
                 num_nodes=max_deg
             )
 
-            if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+            if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                 # reload validation memory bank for new testing nodes
                 model[0].memory_bank.reload_memory_bank(val_backup_memory_bank)
 
@@ -876,7 +891,7 @@ if __name__ == "__main__":
                 new_node_test_metric_dict,
             ) = ({}, {}, {}, {})
 
-            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                 logger.info(f"validate loss: {np.nanmean(val_losses):.4f}")
                 for metric_name in val_metrics[0].keys():
                     average_val_metric = np.nanmean(
@@ -922,7 +937,7 @@ if __name__ == "__main__":
             single_run_time = time.time() - run_start_time
             logger.info(f"Run {run + 1} cost {single_run_time:.2f} seconds.")
 
-            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                 val_metric_all_runs.append(val_metric_dict)
                 new_node_val_metric_all_runs.append(new_node_val_metric_dict)
             test_metric_all_runs.append(test_metric_dict)
@@ -934,7 +949,7 @@ if __name__ == "__main__":
                 logger.removeHandler(ch)
 
             # save model result
-            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+            if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
                 result_json = {
                     "validate metrics": {
                         metric_name: f"{val_metric_dict[metric_name]:.4f}"
@@ -1002,7 +1017,7 @@ if __name__ == "__main__":
     # store the average metrics at the log of the last run
     logger.info(f"metrics over {args.num_runs} runs:")
 
-    if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT"]:
+    if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "TGAT", "DyGFormer"]:
         for metric_name in val_metric_all_runs[0].keys():
             logger.info(
                 f"validate {metric_name}, {[val_metric_single_run[metric_name] for val_metric_single_run in val_metric_all_runs]}"

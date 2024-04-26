@@ -5,16 +5,17 @@ from collections import defaultdict
 import math
 
 from utils.utils import NeighborSampler, vectorized_update_mem_2d
-from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TimeInitTransformExp, TimeInitTransformLinear, TimeInitTransformFourier, TimeInitTransformMLP, TimeInitTransformMLP2, TimeInitTransform3Unite
+from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TT_DICT, AttentionFusion
 
 
 class MemoryModel(torch.nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, min_time: float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
+                 time_feat_dim: int, min_time: float, total_time:float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0,
-                 device: str = 'cpu', init_weights: str = 'degree', use_init_method = False):
+                 device: str = 'cpu', init_weights: str = 'degree', use_init_method = False,
+                 attfus = True):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -50,6 +51,7 @@ class MemoryModel(torch.nn.Module):
         self.dst_node_std_time_shift = dst_node_std_time_shift
         self.use_init_method = use_init_method
         self.init_weights = init_weights
+        self.attfus = attfus
         if time_partitioned_node_degrees is not None:
             self.time_partitioned_node_degrees = time_partitioned_node_degrees.to(self.device)
         else:
@@ -68,18 +70,13 @@ class MemoryModel(torch.nn.Module):
             nn.Linear(self.memory_dim, self.memory_dim),
             nn.ReLU(),
         )
-        if self.init_weights == 'time-exp':
-            self.time_transformation_for_init = TimeInitTransformExp(min_time)
-        if self.init_weights == 'time-linear':
-            self.time_transformation_for_init = TimeInitTransformLinear(min_time)
-        if self.init_weights == 'time-fourier':
-            self.time_transformation_for_init = TimeInitTransformFourier(min_time)
-        if self.init_weights == 'time-mlp':
-            self.time_transformation_for_init = TimeInitTransformMLP(min_time)
-        if self.init_weights == 'time-mlp2':
-            self.time_transformation_for_init = TimeInitTransformMLP2(min_time)
-        if self.init_weights == 'time-3unite':
-            self.time_transformation_for_init = TimeInitTransform3Unite(min_time)
+        if self.attfus:
+            self.attfus = AttentionFusion(self.memory_dim)
+            self.time_transformation_for_init = nn.ModuleList(
+                [TT_DICT[name](min_time, total_time) for name in self.init_weights]
+            )
+        else:
+            self.time_transformation_for_init = TT_DICT[self.init_weights](min_time, total_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()
 
@@ -321,11 +318,32 @@ class MemoryModel(torch.nn.Module):
             if self.init_weights == 'log-degree':
                 weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
         
-        # If initialisation weight is expontential decay or linear decay
+        elif self.attfus:
+            weights = []
+            for name, tt in zip(self.init_weights, self.time_transformation_for_init):
+                if name == 'degree' or name == 'log-degree':
+                    num_partitions_total = self.time_partitioned_node_degrees.shape[0]
+                    check_time = float(torch.min(torch.from_numpy(node_interact_times)))
+                    partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.min_time) - 1
+                    weigh = self.time_partitioned_node_degrees[partition_num].clone()
+                    if name == 'log-degree':
+                        weigh = torch.log(torch.max(torch.ones(1).to(weigh.device), weigh))
+                else:
+                    last_k_times = self.memory_bank.node_last_k_updated_times
+                    curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
+                    all_times = self.memory_bank.node_last_updated_times
+                    weigh = tt(last_k_times - curr_time, curr_time)
+                weights.append(weigh)
+            
         else:
+        # If initialisation weight is function of time
             last_k_times = self.memory_bank.node_last_k_updated_times
             curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
-            weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
+            all_times = self.memory_bank.node_last_updated_times
+            if self.init_weights == 'time-context':
+                weights = self.time_transformation_for_init(time_diffs = last_k_times - curr_time, curr_time = curr_time, node_interact_times = all_times)
+            else:
+                weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
 
         if node_memories_ids.shape[0] == self.num_nodes:
             # get_updated_memories case
@@ -338,14 +356,48 @@ class MemoryModel(torch.nn.Module):
         
         # to_use_node_memories = self.emb_proj(use_node_memories.clone())
         to_use_node_memories = use_node_memories.clone()
-        
-        if weights is not None and torch.any(weights != 0):
-            new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0) / weights.sum()
+        if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for ws in weights for w in ws])):
+            breakpoint()
+            # all the methods should give non-zero weights
+            new_inits = []
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            new_init_repeated = new_init.reshape(-1, 172).repeat(to_use_node_memories.shape[0], 1)
+            if self.training:
+                num_samples = 32
+                num_nodes_per_sample = 200
+            else:
+                num_samples = 2
+                num_nodes_per_sample = self.num_nodes
+            samples = self.sample_nodes_acc_to_degree(num_samples=num_samples, num_nodes_per_sample=num_nodes_per_sample)
+            # shape: (num_samples, num_nodes_per_sample)
+            for weigh in weights:
+                mems = to_use_node_memories[samples]
+                ws = weigh[samples]
+                new_node_init = (ws.unsqueeze(2) * mems).sum(dim = 1) / ws.sum(dim = 1).reshape(-1, 1)
+                # Take weighted average for each sample
+                new_inits.append(new_node_init.unsqueeze(1))
+            new_init_embeds = torch.cat(new_inits, dim = 1)
+            # Run attention fusion operation
+            new_init = self.attfus(new_init_embeds, log_dict)
+            new_init_repeated = torch.zeros_like(to_use_node_memories)
+            new_init = new_init[torch.randperm(new_node_ids.shape[0]) % num_samples]
+            new_init_repeated[new_node_ids] += new_init
             mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
             mask[new_node_ids] = 1
-            # breakpoint()
+            # Update memories by adding new init for new nodes
+            cloned = new_init_repeated.clone()
+            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * cloned)
+            if log_dict:
+                log_dict['new_init_mean'] = torch.mean(new_init_repeated.detach())
+                log_dict['new_init_std'] = torch.std(new_init_repeated.detach())
+            breakpoint()
+            del new_init_repeated, cloned, mask, new_init, new_init_embeds, new_inits, samples, weights, to_use_node_memories
+        elif not self.attfus and weights is not None and torch.any(weights != 0):
+            new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0)/weights.sum()
+            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
+            new_init_repeated = new_init.reshape(-1, 172).repeat(to_use_node_memories.shape[0], 1)
+            new_init_repeated[new_node_ids] += new_init
+            mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
+            mask[new_node_ids] = 1
             if log_dict:
                 log_dict['new_init_mean'] = torch.mean(new_init_repeated)
                 log_dict['new_init_std'] = torch.std(new_init_repeated)
@@ -364,6 +416,12 @@ class MemoryModel(torch.nn.Module):
                 node_ids_to_update = new_node_ids
             return node_ids_to_update.cpu().detach().numpy(), use_node_memories[node_ids_to_update]
 
+    def sample_nodes_acc_to_degree(self, num_samples, num_nodes_per_sample = 200):
+        # Sample nodes 
+        probs = self.memory_bank.node_interact_counts ** 0.75
+        samples = torch.multinomial(probs.reshape(1, -1).repeat(num_samples, 1), num_nodes_per_sample, replacement = False)
+        return samples
+        
 # Message-related Modules
 class MessageAggregator(nn.Module):
 
