@@ -70,12 +70,12 @@ class MemoryModel(torch.nn.Module):
             nn.Linear(self.memory_dim, self.memory_dim),
             nn.ReLU(),
         )
-        if self.attfus:
+        if self.use_init_method and self.attfus:
             self.attfus = AttentionFusion(self.memory_dim)
             self.time_transformation_for_init = nn.ModuleList(
                 [TT_DICT[name](min_time, total_time) for name in self.init_weights]
             )
-        else:
+        elif self.use_init_method:
             self.time_transformation_for_init = TT_DICT[self.init_weights](min_time, total_time)
         # message module (models use the identity function for message encoding, hence, we only create MessageAggregator)
         self.message_aggregator = MessageAggregator()

@@ -54,7 +54,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--t1_factor_of_t2', type=float, default=1, help='t1 factor of t2 when t2 is 0.04 of total time')
     parser.add_argument('--use_init_method', action = 'store_true', help='Use new init method')
     parser.add_argument('--emb_proj', action = 'store_true', help='Use embedding projection before weighted average')
-    parser.add_argument('--init_weights', type = str, nargs='+', choices = ['degree', 'log-degree', 'time-exp', 'time-linear', 'time-fourier', 'time-mlp', 'time-mlp2', 'time-3unite', 'normal-dyg', 'time-quad', 'time-cubic', 'time-context'])
+    parser.add_argument('--init_weights', type = str, nargs='+', choices = ['degree', 'log-degree', 'time-exp', 'time-linear', 'time-fourier', 'time-mlp', 'time-mlp2', 'time-3unite', 'normal-dyg', 'time-quad', 'time-cubic', 'time-context'], default = [])
     parser.add_argument('--clip', type= float, help = 'clip val for grad of time-transformation operation', default = 1.0)
     parser.add_argument('--attfus', action = 'store_true', help='Use attention fusion on exp and linear')
 

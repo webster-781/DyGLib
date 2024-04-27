@@ -72,7 +72,7 @@ if __name__ == "__main__":
     global_log_arr = []
     # get arguments
     args = get_link_prediction_args(is_evaluation=False)
-    
+    all_best_test_metrics, all_best_new_node_test_metrics = [], []
     min_time, total_time, num_nodes, time_partitioned_node_degrees = find_partition_node_degrees_for_new_node_init(dataset_name=args.dataset_name, t1_factor_of_t2=args.t1_factor_of_t2, t2_factor=0.04)
     if not args.use_init_method:
         time_partitioned_node_degrees = None
@@ -206,6 +206,11 @@ if __name__ == "__main__":
     with torch.autograd.set_detect_anomaly(True):
         for run in range(args.num_runs):
             set_random_seed(seed=run)
+            best_val_metric_for_this_run = 0
+            best_val_epoch_for_this_run = 0
+            past_10_val_metrics_for_this_run = []
+            best_test_metrics_for_this_run = []
+            best_new_node_test_metrics_for_this_run = []
 
             args.seed = run
             args.save_model_name = f"{args.model_name}_seed{args.seed}_{wandb_run.name}"
@@ -656,6 +661,7 @@ if __name__ == "__main__":
                     time_gap=args.time_gap,
                     num_nodes=max_deg
                 )
+                past_10_val_metrics_for_this_run+=val_metrics
 
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
                     # backup memory bank after validating so it can be used for testing nodes (since test edges are strictly later in time than validation edges)
@@ -793,7 +799,7 @@ if __name__ == "__main__":
                         )
                 if args.model_name == 'DecoLP':
                     wandb_log_dict['avg_ff_weight_norm'] = torch.sum(torch.tensor([torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear1.weight) + torch.norm(dynamic_backbone.memory_updater.memory_updater.encoder.layers[i].linear2.weight) for i in range(dynamic_backbone.memory_updater.memory_updater.encoder.num_layers)]))
-                wandb_run.log(wandb_log_dict, commit = True)
+                wandb_run.log(wandb_log_dict, commit = True)    
                 # select the best model based on all the validate metrics
                 val_metric_indicator = []
                 for metric_name in val_metrics[0].keys():
@@ -810,7 +816,6 @@ if __name__ == "__main__":
 
                 if early_stop:
                     break
-
             # load the best model
             early_stopping.load_checkpoint(model)
 
@@ -984,34 +989,14 @@ if __name__ == "__main__":
             with open(save_result_path, "w") as file:
                 file.write(result_json)
             wandb_run.save(save_result_path)
-            run_id = wandb_run.id
-            wandb_run.finish()
-            
-            # UPDATE WANDB_SUMMARY
-            # Find epoch with best avg precision
-            api = wandb.Api()
-            wandb_run = api.run(f"/fb-graph-proj/fb-graph-proj-dyglib/runs/{run_id}")
-            val_key = 'val average_precision'
-            hist = wandb_run.history(samples = 200, keys = [val_key])[val_key]
-            best_epoch_num_test = np.argmax(hist[9::10])
-            best_epoch_num = np.argmax(hist)
-            print(best_epoch_num)
-            summ = {}
-            for key in track_columns:
-                hist = wandb_run.history(samples = 200, keys = [key])[key]
-                print(f"From {wandb_run.summary[key]} to ", end ="")
-                if 'test' in key:
-                    wandb_run.summary[key] = hist[best_epoch_num_test]
-                    print(f"{wandb_run.summary[key]}")
-                else:
-                    wandb_run.summary[key] = hist[best_epoch_num]
-                    print(f"{wandb_run.summary[key]}")
-                summ[key] = wandb_run.summary[key]
-            wandb_run.summary.update()
 
     # store the average metrics at the log of the last run
+    run_id = wandb_run.id
+    wandb_run.finish()
     logger.info(f"metrics over {args.num_runs} runs:")
 
+    api = wandb.Api()
+    wandb_run = api.run(f"/fb-graph-proj/fb-graph-proj-dyglib/runs/{run_id}")
     if args.model_name not in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
         for metric_name in val_metric_all_runs[0].keys():
             logger.info(
@@ -1039,6 +1024,7 @@ if __name__ == "__main__":
             f"average test {metric_name}, {np.nanmean([test_metric_single_run[metric_name] for test_metric_single_run in test_metric_all_runs]):.4f} "
             f"± {np.std([test_metric_single_run[metric_name] for test_metric_single_run in test_metric_all_runs], ddof=1):.4f}"
         )
+        wandb_run.summary['test ' + metric_name] = np.nanmean([run[metric_name] for run in test_metric_all_runs])
 
     for metric_name in new_node_test_metric_all_runs[0].keys():
         logger.info(
@@ -1048,5 +1034,6 @@ if __name__ == "__main__":
             f"average new node test {metric_name}, {np.nanmean([new_node_test_metric_single_run[metric_name] for new_node_test_metric_single_run in new_node_test_metric_all_runs]):.4f} "
             f"± {np.std([new_node_test_metric_single_run[metric_name] for new_node_test_metric_single_run in new_node_test_metric_all_runs], ddof=1):.4f}"
         )
-
+        wandb_run.summary['new node test ' + metric_name] = np.nanmean([run[metric_name] for run in new_node_test_metric_all_runs])
+    wandb_run.summary.update()
     sys.exit()
