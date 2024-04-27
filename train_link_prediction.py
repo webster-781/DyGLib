@@ -750,7 +750,7 @@ if __name__ == "__main__":
                     )
 
                 # perform testing once after test_interval_epochs
-                if (epoch + 1) % 1 == 0:
+                if (epoch + 1) % args.test_interval_epochs == 0:
                     test_losses, test_metrics, test_hist = evaluate_model_link_prediction(
                         model_name=args.model_name,
                         model=model,
