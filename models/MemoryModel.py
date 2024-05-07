@@ -356,8 +356,7 @@ class MemoryModel(torch.nn.Module):
         
         # to_use_node_memories = self.emb_proj(use_node_memories.clone())
         to_use_node_memories = use_node_memories.clone()
-        if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for ws in weights for w in ws])):
-            breakpoint()
+        if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for w in weights])):
             # all the methods should give non-zero weights
             new_inits = []
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
@@ -389,7 +388,6 @@ class MemoryModel(torch.nn.Module):
             if log_dict:
                 log_dict['new_init_mean'] = torch.mean(new_init_repeated.detach())
                 log_dict['new_init_std'] = torch.std(new_init_repeated.detach())
-            breakpoint()
             del new_init_repeated, cloned, mask, new_init, new_init_embeds, new_inits, samples, weights, to_use_node_memories
         elif not self.attfus and weights is not None and torch.any(weights != 0):
             new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0)/weights.sum()

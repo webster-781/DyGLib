@@ -683,13 +683,13 @@ if __name__ == "__main__":
                     num_nodes=max_deg
                 )
                 
-                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
-                    train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
-                    wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
-                    val_histogram = get_wandb_histogram(val_hist)
-                    wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
-                    new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
-                    wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
+                # if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
+                #     train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
+                #     wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
+                #     val_histogram = get_wandb_histogram(val_hist)
+                #     wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
+                #     new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
+                #     wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
                 
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
                     # reload validation memory bank for testing nodes or saving models
@@ -766,10 +766,10 @@ if __name__ == "__main__":
                         num_nodes=max_deg
                     )
                     
-                    test_histogram = get_wandb_histogram(test_hist)
-                    wandb_log_dict[f'test_acc_hist'] = wandb.Histogram(np_histogram=test_histogram)
-                    new_node_test_histogram = get_wandb_histogram(new_node_test_hist)
-                    wandb_log_dict[f'new node test_acc_hist'] = wandb.Histogram(np_histogram=new_node_test_histogram)
+                    # test_histogram = get_wandb_histogram(test_hist)
+                    # wandb_log_dict[f'test_acc_hist'] = wandb.Histogram(np_histogram=test_histogram)
+                    # new_node_test_histogram = get_wandb_histogram(new_node_test_hist)
+                    # wandb_log_dict[f'new node test_acc_hist'] = wandb.Histogram(np_histogram=new_node_test_histogram)
 
                     if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
                         # reload validation memory bank for testing nodes or saving models
