@@ -374,6 +374,7 @@ if __name__ == "__main__":
                     init_weights=args.init_weights,
                     time_partitioned_node_degrees = time_partitioned_node_degrees,
                     min_time = min_time,
+                    total_time = total_time
                 )
             else:
                 raise ValueError(f"Wrong value for model_name {args.model_name}!")
@@ -545,6 +546,11 @@ if __name__ == "__main__":
                     elif args.model_name in ["DyGFormer"]:
                         wandb_log_dict['all_emb_mean'] = torch.mean(model[0].memory_bank.node_memories)
                         wandb_log_dict['all_emb_std'] = torch.std(model[0].memory_bank.node_memories)
+                        
+                        # 1. Call a function to get some new init embeddings (64 of 200 nodes each)
+                        
+                        # 2. Find the new nodes you are using and put these embeddings in their places
+                        
                         # get temporal embedding of negative source and negative destination nodes
                         # two Tensors, with shape (batch_size, node_feat_dim)
                         (
