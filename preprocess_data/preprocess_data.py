@@ -89,11 +89,11 @@ def preprocess_data(dataset_name: str, bipartite: bool = True, node_feat_dim: in
     :param node_feat_dim: int, dimension of node features
     :return:
     """
-    Path("../processed_data/{}/".format(dataset_name)).mkdir(parents=True, exist_ok=True)
-    PATH = '../DG_data/{}/{}.csv'.format(dataset_name, dataset_name)
-    OUT_DF = '../processed_data/{}/ml_{}.csv'.format(dataset_name, dataset_name)
-    OUT_FEAT = '../processed_data/{}/ml_{}.npy'.format(dataset_name, dataset_name)
-    OUT_NODE_FEAT = '../processed_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name)
+    Path("/home/ayush/DyGLib/processed_data/{}/".format(dataset_name)).mkdir(parents=True, exist_ok=True)
+    PATH = '/home/ayush/DyGLib/DG_data/{}/{}.csv'.format(dataset_name, dataset_name)
+    OUT_DF = '/home/ayush/DyGLib/processed_data/{}/ml_{}.csv'.format(dataset_name, dataset_name)
+    OUT_FEAT = '/home/ayush/DyGLib/processed_data/{}/ml_{}.npy'.format(dataset_name, dataset_name)
+    OUT_NODE_FEAT = '/home/ayush/DyGLib/processed_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name)
 
     df, edge_feats = preprocess(PATH)
     new_df = reindex(df, bipartite)
@@ -124,14 +124,14 @@ def check_data(dataset_name: str):
     :return:
     """
     # original data paths
-    origin_OUT_DF = '../DG_data/{}/ml_{}.csv'.format(dataset_name, dataset_name)
-    origin_OUT_FEAT = '../DG_data/{}/ml_{}.npy'.format(dataset_name, dataset_name)
-    origin_OUT_NODE_FEAT = '../DG_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name)
+    origin_OUT_DF = '/home/ayush/DyGLib/DG_data/{}/ml_{}.csv'.format(dataset_name, dataset_name)
+    origin_OUT_FEAT = '/home/ayush/DyGLib/DG_data/{}/ml_{}.npy'.format(dataset_name, dataset_name)
+    origin_OUT_NODE_FEAT = '/home/ayush/DyGLib/DG_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name)
 
     # processed data paths
-    OUT_DF = '../processed_data/{}/ml_{}.csv'.format(dataset_name, dataset_name)
-    OUT_FEAT = '../processed_data/{}/ml_{}.npy'.format(dataset_name, dataset_name)
-    OUT_NODE_FEAT = '../processed_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name)
+    OUT_DF = '/home/ayush/DyGLib/processed_data/{}/ml_{}.csv'.format(dataset_name, dataset_name)
+    OUT_FEAT = '/home/ayush/DyGLib/processed_data/{}/ml_{}.npy'.format(dataset_name, dataset_name)
+    OUT_NODE_FEAT = '/home/ayush/DyGLib/processed_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name)
 
     # Load original data
     origin_g_df = pd.read_csv(origin_OUT_DF)
@@ -153,7 +153,7 @@ def check_data(dataset_name: str):
 parser = argparse.ArgumentParser('Interface for preprocessing datasets')
 parser.add_argument('--dataset_name', type=str,
                     choices=['wikipedia', 'reddit', 'mooc', 'lastfm', 'myket', 'enron', 'SocialEvo', 'uci',
-                             'Flights', 'CanParl', 'USLegis', 'UNtrade', 'UNvote', 'Contacts', "ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m", "ia-reality-call"],
+                             'Flights', 'CanParl', 'USLegis', 'UNtrade', 'UNvote', 'Contacts', "ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m", "ia-reality-call", "ia-chess", "tech-as-topology"],
                     help='Dataset name', default='wikipedia')
 parser.add_argument('--node_feat_dim', type=int, default=172, help='Number of node raw features')
 

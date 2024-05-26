@@ -83,24 +83,59 @@ class DyGFormer(nn.Module):
         self.output_layer = nn.Linear(in_features=self.num_channels * self.channel_embedding_dim, out_features=self.node_feat_dim, bias=True)
 
     def compute_src_dst_node_temporal_embeddings(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray, edges_are_positive:bool, log_dict:dict=None):
-        src_embs, dst_embs = self.compute_src_dst_node_temporal_embeddings_temp(src_node_ids=src_node_ids, dst_node_ids=dst_node_ids, node_interact_times=node_interact_times, edges_are_positive=edges_are_positive, log_dict=log_dict)
-        all_embs = torch.cat((src_embs, dst_embs), dim = 0)
+        src_embeddings, dst_embeddings = self.compute_src_dst_node_temporal_embeddings_temp(src_node_ids=src_node_ids, dst_node_ids=dst_node_ids, node_interact_times=node_interact_times, edges_are_positive=edges_are_positive, log_dict=log_dict)
         all_ids = np.concatenate((src_node_ids, dst_node_ids))
         if self.use_init_method and torch.any(self.memory_bank.is_node_seen[all_ids]):
-            new_node_ids = torch.argwhere(~self.memory_bank.is_node_seen[all_ids]).reshape(-1)
-            flag, new_init = self.get_new_node_embeddings(node_interact_times=node_interact_times, wandb_log_dict=log_dict)
-            breakpoint()
-            if flag:
-                num_samples = new_init.shape[0]
-                new_init_repeated = torch.zeros_like(all_embs)
-                new_init = new_init[torch.randperm(new_node_ids.shape[0]) % num_samples]
-                new_init_repeated[new_node_ids] += new_init
-                mask = torch.zeros(all_embs.shape[0]).to(self.device)
-                mask[new_node_ids] = 1
-                # Update memories by adding new init for new nodes
-                cloned = new_init_repeated.clone()
-                all_embs = all_embs + (mask.unsqueeze(-1) * cloned)
-        return all_embs.split(src_node_ids.shape[0], dim = 0)
+            ## Step 1
+            new_src_node_ids = torch.argwhere(~self.memory_bank.is_node_seen[src_node_ids]).reshape(-1)
+            new_dst_node_ids = torch.argwhere(~self.memory_bank.is_node_seen[dst_node_ids]).reshape(-1)
+            corresponding_dst_ids = dst_node_ids[new_src_node_ids.cpu().numpy()]
+            corresponding_src_ids = dst_node_ids[new_dst_node_ids.cpu().numpy()]
+            
+            if corresponding_dst_ids.shape[0] > 0:
+                src_flag, src_new_src_embs, src_new_dst_embs = self.get_new_node_embeddings(corresponding_dst_ids=corresponding_dst_ids, node_interact_times=node_interact_times[new_src_node_ids.cpu().numpy()],  wandb_log_dict=log_dict)
+                if src_flag:
+                    new_src_init_repeated = torch.zeros_like(src_embeddings)
+                    new_dst_init_repeated = torch.zeros_like(dst_embeddings)
+                    new_src_init_repeated[new_src_node_ids] += src_new_src_embs
+                    new_dst_init_repeated[new_src_node_ids] += src_new_dst_embs
+                    src_mask = torch.zeros(src_embeddings.shape[0]).to(self.device)
+                    src_mask[new_src_node_ids] = 1
+                    # Update memories by adding new init for new nodes
+                    src_embeddings = ((1 - src_mask.unsqueeze(-1)) * src_embeddings) + (src_mask.unsqueeze(-1) * new_src_init_repeated)
+                    dst_embeddings = ((1 - src_mask.unsqueeze(-1)) * dst_embeddings) + (src_mask.unsqueeze(-1) * new_dst_init_repeated)
+            if corresponding_src_ids.shape[0] > 0:
+                dst_flag, dst_new_dst_embs, dst_new_src_embs = self.get_new_node_embeddings(corresponding_dst_ids=corresponding_src_ids, node_interact_times=node_interact_times[new_dst_node_ids.cpu().numpy()],  wandb_log_dict=log_dict)
+                if dst_flag:
+                    new_src_init_repeated = torch.zeros_like(src_embeddings)
+                    new_dst_init_repeated = torch.zeros_like(dst_embeddings)
+                    new_src_init_repeated[new_dst_node_ids] += dst_new_src_embs
+                    new_dst_init_repeated[new_dst_node_ids] += dst_new_dst_embs
+                    dst_mask = torch.zeros(src_embeddings.shape[0]).to(self.device)
+                    dst_mask[new_dst_node_ids] = 1
+                    # Update memories by adding new init for new nodes
+                    src_embeddings = ((1 - dst_mask.unsqueeze(-1)) * src_embeddings) + (dst_mask.unsqueeze(-1) * new_src_init_repeated)
+                    dst_embeddings = ((1 - dst_mask.unsqueeze(-1)) * dst_embeddings) + (dst_mask.unsqueeze(-1) * new_dst_init_repeated)
+        
+        if edges_are_positive:
+            src_unique_ids, src_latest_indices = get_latest_unique_indices(torch.from_numpy(src_node_ids))
+            dst_unique_ids, dst_latest_indices = get_latest_unique_indices(torch.from_numpy(dst_node_ids))
+            
+            self.memory_bank.node_memories[src_unique_ids] = src_embeddings[src_latest_indices].clone().detach()
+            self.memory_bank.node_memories[dst_unique_ids] = dst_embeddings[dst_latest_indices].clone().detach()
+            
+            self.memory_bank.node_last_updated_times[src_unique_ids] = torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device)
+            self.memory_bank.node_last_updated_times[dst_unique_ids] = torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device)
+            
+            self.memory_bank.node_last_k_updated_times[src_unique_ids] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[src_unique_ids], torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device))
+            self.memory_bank.node_last_k_updated_times[dst_unique_ids] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[dst_unique_ids], torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device))
+
+            self.memory_bank.is_node_seen[src_node_ids] = True
+            self.memory_bank.is_node_seen[dst_node_ids] = True
+            
+            self.memory_bank.node_interact_counts = self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(src_node_ids).to(self.device), torch.ones_like(torch.from_numpy(src_node_ids), device = self.device))
+            self.memory_bank.node_interact_counts = self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(dst_node_ids).to(self.device), torch.ones_like(torch.from_numpy(dst_node_ids), device = self.device))
+        return src_embeddings, dst_embeddings
     
     def compute_src_dst_node_temporal_embeddings_temp(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, node_interact_times: np.ndarray, edges_are_positive:bool, log_dict:dict=None):
         """
@@ -227,25 +262,6 @@ class DyGFormer(nn.Module):
         src_node_embeddings = self.output_layer(src_patches_data)
         # Tensor, shape (batch_size, node_feat_dim)
         dst_node_embeddings = self.output_layer(dst_patches_data)
-
-        if edges_are_positive:
-            src_unique_ids, src_latest_indices = get_latest_unique_indices(torch.from_numpy(src_node_ids))
-            dst_unique_ids, dst_latest_indices = get_latest_unique_indices(torch.from_numpy(dst_node_ids))
-            
-            self.memory_bank.node_memories[src_unique_ids] = src_node_embeddings[src_latest_indices].clone().detach()
-            self.memory_bank.node_memories[dst_unique_ids] = dst_node_embeddings[dst_latest_indices].clone().detach()
-            
-            self.memory_bank.node_last_updated_times[src_unique_ids] = torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device)
-            self.memory_bank.node_last_updated_times[dst_unique_ids] = torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device)
-            
-            self.memory_bank.node_last_k_updated_times[src_unique_ids] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[src_unique_ids], torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device))
-            self.memory_bank.node_last_k_updated_times[dst_unique_ids] = vectorized_update_mem_2d(self.memory_bank.node_last_k_updated_times[dst_unique_ids], torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device))
-
-            self.memory_bank.is_node_seen[src_node_ids] = True
-            self.memory_bank.is_node_seen[dst_node_ids] = True
-            
-            self.memory_bank.node_interact_counts = self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(src_node_ids).to(self.device), torch.ones_like(torch.from_numpy(src_node_ids), device = self.device))
-            self.memory_bank.node_interact_counts = self.memory_bank.node_interact_counts.scatter_add(0, torch.from_numpy(dst_node_ids).to(self.device), torch.ones_like(torch.from_numpy(dst_node_ids), device = self.device))
             
         return src_node_embeddings, dst_node_embeddings
 
@@ -261,27 +277,27 @@ class DyGFormer(nn.Module):
             samples = torch.zeros_like(samples)
         return samples
 
-    def get_new_node_embeddings(self, node_interact_times, wandb_log_dict):
-        overall_samples = self.sample_nodes_acc_to_degree(num_samples = 1, num_nodes_per_sample = 400).reshape(-1)
-        if self.training:
-            num_samples = 64
-            num_nodes_per_sample = 100
-        else:
-            num_samples = 2
-            num_nodes_per_sample = 400
-        combinations = torch.rand(num_samples, 400).argsort(dim = 1)[:, :num_nodes_per_sample]
-        if torch.any(~self.memory_bank.is_node_seen):
-            a_new_node_idx = (~self.memory_bank.is_node_seen).argwhere()[0].item()
-        else:
-            a_new_node_idx = 0
+    def get_new_node_embeddings(self, node_interact_times, wandb_log_dict, corresponding_src_ids = None, corresponding_dst_ids = None):
+        ## Step 2 & 3
+        num_samples = len(corresponding_src_ids) if corresponding_src_ids is not None else len(corresponding_dst_ids)
+        num_nodes_per_sample = 8
+        overall_samples = self.sample_nodes_acc_to_degree(num_samples = num_samples, num_nodes_per_sample = num_nodes_per_sample).reshape(-1)
         max_time = np.max(node_interact_times)
-        embeds, _ = self.compute_src_dst_node_temporal_embeddings_temp(
-                            src_node_ids=overall_samples,
-                            dst_node_ids=torch.ones_like(overall_samples) * a_new_node_idx,
-                            node_interact_times=np.ones(overall_samples.shape[0]) * max_time,
+    
+        ## Step 4
+        if corresponding_src_ids is not None:
+            src_node_ids = corresponding_src_ids.repeat(num_nodes_per_sample)
+            dst_node_ids = overall_samples.cpu().numpy()
+        else:
+            src_node_ids = overall_samples.cpu().numpy()
+            dst_node_ids = corresponding_dst_ids.repeat(num_nodes_per_sample)
+        src_embeds, dst_embeds = self.compute_src_dst_node_temporal_embeddings_temp(
+                            src_node_ids=src_node_ids,
+                            dst_node_ids=dst_node_ids,
+                            node_interact_times=node_interact_times.repeat(num_nodes_per_sample),
                             edges_are_positive=False,
                             log_dict = wandb_log_dict)
-        
+        # Step 5
         weights = []
         for name, tt in zip(self.init_weights, self.time_transformation_for_init):
             if name == 'degree' or name == 'log-degree':
@@ -294,27 +310,34 @@ class DyGFormer(nn.Module):
             else:
                 last_k_times = self.memory_bank.node_last_k_updated_times[overall_samples]
                 curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
-                weigh = tt(last_k_times - curr_time, curr_time)
+                weigh = tt(last_k_times - torch.from_numpy(node_interact_times).repeat(num_nodes_per_sample).to(dtype=torch.float32, device=last_k_times.device).unsqueeze(1), curr_time)
             weights.append(weigh)
-        breakpoint()
+            
+        # Step 6
         if weights is not None and torch.all(torch.tensor([torch.any(w != 0) for w in weights])):
             # all the methods should give non-zero weights
-            new_inits = []
+            src_new_inits = []
+            dst_new_inits = []
             # shape: (num_samples, num_nodes_per_sample)
-            samples = combinations
+            samples = torch.arange(len(overall_samples)).reshape(-1, num_nodes_per_sample)
             for weigh in weights:
-                mems = embeds[samples]
+                src_mems = src_embeds[samples]
+                dst_mems = dst_embeds[samples]
                 ws = weigh[samples]
-                new_node_init = (ws.unsqueeze(2) * mems).sum(dim = 1) / ws.sum(dim = 1).reshape(-1, 1)
+                new_node_src = (ws.unsqueeze(2) * src_mems).sum(dim = 1) / ws.sum(dim = 1).reshape(-1, 1)
+                new_node_dst = (ws.unsqueeze(2) * dst_mems).sum(dim = 1) / ws.sum(dim = 1).reshape(-1, 1)
                 # Take weighted average for each sample
-                new_inits.append(new_node_init.unsqueeze(1))
-            new_init_embeds = torch.cat(new_inits, dim = 1)
+                src_new_inits.append(new_node_src.unsqueeze(1))
+                dst_new_inits.append(new_node_dst.unsqueeze(1))
+            src_embeddings = torch.cat(src_new_inits, dim = 1)
+            dst_embeddings = torch.cat(dst_new_inits, dim = 1)
             # Run attention fusion operation
-            new_init = self.attfus(new_init_embeds, wandb_log_dict)
-            del new_init_embeds, new_inits, samples, weights, combinations
-            return True, new_init
+            new_init_src = self.attfus(src_embeddings, wandb_log_dict)
+            new_init_dst = self.attfus(dst_embeddings, wandb_log_dict)
+            del new_node_src, new_node_dst, src_mems, dst_mems, src_new_inits, dst_new_inits, src_embeddings, dst_embeddings, samples, weights, overall_samples, src_embeds, dst_embeds, 
+            return True, new_init_src, new_init_dst
         else:
-            return False, embeds
+            return False, src_embeds, dst_embeddings
         
     def pad_sequences(self, node_ids: np.ndarray, node_interact_times: np.ndarray, nodes_neighbor_ids_list: list, nodes_edge_ids_list: list,
                       nodes_neighbor_times_list: list, patch_size: int = 1, max_input_sequence_length: int = 256):
