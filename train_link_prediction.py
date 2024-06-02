@@ -383,6 +383,7 @@ if __name__ == "__main__":
                 input_dim2=args.position_feat_dim,
                 hidden_dim=args.position_feat_dim,
                 output_dim=1,
+                predictor=args.predictor
             )
             model = nn.Sequential(dynamic_backbone, link_predictor)
             logger.info(f"model -> {model}")

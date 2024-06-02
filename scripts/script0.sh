@@ -1,5 +1,4 @@
-# datasets=("ia-escorts-dynamic" "ia-digg-reply" "ia-reality-call")
-datasets=("ia-retweet-pol" "ia-movielens-user2tags-10m" "ia-slashdot-reply-dir")
+datasets=("ia-escorts-dynamic" "ia-digg-reply" "ia-reality-call" "ia-retweet-pol" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m")
 # datasets=("wikipedia" "reddit" "lastfm")
 gpu_choices=(0 1 2)
 len=${#gpu_choices[@]}
