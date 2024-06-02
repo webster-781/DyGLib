@@ -93,6 +93,14 @@ if __name__ == "__main__":
         test_ratio=args.test_ratio,
     )
 
+    src_node_ids = full_data.src_node_ids.unique()
+    dst_node_ids = full_data.dst_node_ids.unique()
+    src_node_set = set(src_node_ids.tolist())
+    dst_node_set = set(dst_node_ids.tolist())
+    bipartite = False
+    if len(src_node_set.intersection(dst_node_set)) == 0:
+        bipartite = True
+    
     # initialize training neighbor sampler to retrieve temporal graph
     train_neighbor_sampler = get_neighbor_sampler(
         data=train_data,
@@ -289,7 +297,10 @@ if __name__ == "__main__":
                     init_weights = args.init_weights,
                     use_init_method = args.use_init_method,
                     total_time = total_time,
-                    attfus = args.attfus
+                    attfus = args.attfus,
+                    bipartite = args.bipartite,
+                    src_nodes = torch.LongTensor(list(src_node_set)),
+                    dst_nodes = torch.LongTensor(list(dst_node_set)),
                 )
             elif args.model_name == "DecoLP":
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE

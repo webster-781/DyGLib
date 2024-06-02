@@ -11,11 +11,11 @@ from models.modules import TimeEncoder, MergeLayer, MultiHeadAttention, TT_DICT,
 class MemoryModel(torch.nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, min_time: float, total_time:float, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
-                 src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
-                 dst_node_std_time_shift: float = 1.0,
-                 device: str = 'cpu', init_weights: str = 'degree', use_init_method = False,
-                 attfus = True):
+                 time_feat_dim: int, min_time: float, total_time:float, src_nodes: torch.LongTensor, dst_nodes: torch.LongTensor, model_name: str = 'TGN', num_layers: int = 2, num_heads: int = 2, dropout: float = 0.1,
+                 src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, 
+                 dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
+                 dst_node_std_time_shift: float = 1.0, device: str = 'cpu', init_weights: str = 'degree',
+                 use_init_method = False, attfus = True, bipartite = False):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -52,6 +52,9 @@ class MemoryModel(torch.nn.Module):
         self.use_init_method = use_init_method
         self.init_weights = init_weights
         self.attfus = attfus
+        self.bipartite = bipartite
+        self.src_nodes = src_nodes
+        self.dst_nodes = dst_nodes
         if time_partitioned_node_degrees is not None:
             self.time_partitioned_node_degrees = time_partitioned_node_degrees.to(self.device)
         else:
@@ -214,9 +217,27 @@ class MemoryModel(torch.nn.Module):
                                                                                                           unique_node_timestamps=unique_node_timestamps)
 
         if self.use_init_method:
-            _, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = node_ids, node_interact_times=node_interact_times, log_dict = log_dict)
-
+            if not self.bipartite:
+                flag, new_init = self.get_init_node_memory(nodes_to_consider=node_ids, use_node_memories=updated_node_memories, node_interact_times=node_interact_times, log_dict = log_dict)
+                updated_node_memories = self.update_some_memories(flag = flag, node_memories=updated_node_memories, node_ids=node_ids, new_init=new_init)
+            else:
+                src_flag, src_new_init = self.get_init_node_memory(nodes_to_consider=self.src_nodes, use_node_memories=updated_node_memories[self.src_nodes], node_interact_times=node_interact_times, log_dict = log_dict)
+                dst_flag, dst_new_init = self.get_init_node_memory(nodes_to_consider=self.dst_nodes, use_node_memories=updated_node_memories[self.dst_nodes], node_interact_times=node_interact_times, log_dict = log_dict)
+                updated_node_memories = self.update_some_memories(flag = src_flag, node_memories=updated_node_memories, node_ids=self.src_nodes, new_init=src_new_init)
+                updated_node_memories = self.update_some_memories(flag = dst_flag, node_memories=updated_node_memories, node_ids=self.dst_nodes, new_init=dst_new_init)
+                
         return updated_node_memories, updated_node_last_updated_times
+
+    def update_some_memories(self, flag, node_memories, node_ids, new_init):
+        ## If flag, then update among node_ids, all new_nodes entries in node_memories with the random entry in new_init
+        if flag:
+            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
+            mask = torch.zeros(self.num_nodes, dtype= torch.bool, device = node_memories.device)
+            mask[new_node_ids] = True
+            new_inits = torch.zeros_like(node_memories)
+            new_inits = new_init[torch.randperm(mask.shape[0]) % new_inits.shape]
+            node_memories = node_memories + mask.unsqueeze(1) * new_inits
+        return node_memories
 
     def update_memories(self, node_ids: np.ndarray, node_raw_messages: dict, node_interact_times):
         """
@@ -237,10 +258,31 @@ class MemoryModel(torch.nn.Module):
         updated_node_memories = self.memory_updater.update_memories(unique_node_ids=unique_node_ids, unique_node_messages=unique_node_messages,
                                             unique_node_timestamps=unique_node_timestamps)
         if self.use_init_method:
-            unique_node_ids, updated_node_memories = self.get_init_node_memory_from_degree(node_ids=node_ids, node_memories=updated_node_memories, node_memories_ids = unique_node_ids, node_interact_times=node_interact_times, log_dict = None)
-        
+            ## Create use_node_memories for all nodes
+            all_nodes = torch.arange(self.num_nodes)
+            use_node_memories = self.memory_bank.node_memories.clone()
+            others = torch.zeros_like(use_node_memories)
+            others[unique_node_ids] += updated_node_memories
+            mask = torch.zeros(self.num_nodes, dtype=torch.bool, device=use_node_memories.device)
+            mask[unique_node_ids] = True
+            use_node_memories = (~mask).unsqueeze(1) * use_node_memories  + mask.unsqueeze(1) * others
+            flag = src_flag = dst_flag = False
+            if not self.bipartite:
+                ## Generate new node embeddings and update updated_node_memories
+                flag, new_init = self.get_init_node_memory(nodes_to_consider=all_nodes, use_node_memories=use_node_memories, node_interact_times=node_interact_times, log_dict = None)
+                use_node_memories = self.update_some_memories(flag = flag, node_memories=use_node_memories, node_ids=all_nodes, new_init=new_init)
+            else:
+                ## Generate new node embeddings and update use_node_memories
+                src_flag, src_new_init = self.get_init_node_memory(nodes_to_consider=self.src_nodes, use_node_memories=use_node_memories[self.src_nodes], node_interact_times=node_interact_times, log_dict = None)
+                dst_flag, dst_new_init = self.get_init_node_memory(nodes_to_consider=self.dst_nodes, use_node_memories=use_node_memories[self.dst_nodes], node_interact_times=node_interact_times, log_dict = None)
+                use_node_memories = self.update_some_memories(flag = src_flag, node_memories=use_node_memories, node_ids=self.src_nodes, new_init=src_new_init)
+                use_node_memories = self.update_some_memories(flag = dst_flag, node_memories=use_node_memories, node_ids=self.dst_nodes, new_init=dst_new_init)
+            if flag or src_flag or dst_flag:
+                new_nodes = node_ids[~self.memory_bank.is_node_seen[node_ids]]
+                unique_node_ids = torch.cat((unique_node_ids, new_nodes), dim = 0)
+                
         # update memories for nodes in unique_node_ids
-        self.memory_bank.set_memories(node_ids=unique_node_ids, updated_node_memories=updated_node_memories)
+        self.memory_bank.set_memories(node_ids=unique_node_ids, updated_node_memories=use_node_memories[unique_node_ids])
 
     def compute_new_node_raw_messages(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray, dst_node_embeddings: torch.Tensor,
                                       node_interact_times: np.ndarray, edge_ids: np.ndarray):
@@ -295,12 +337,84 @@ class MemoryModel(torch.nn.Module):
             assert self.embedding_module.neighbor_sampler.seed is not None
             self.embedding_module.neighbor_sampler.reset_random_state()
     
+    def get_init_node_memory(self, nodes_to_consider, node_interact_times, use_node_memories, num_combinations = 32, num_samples = 400, num_samples_per_combination = 200, log_dict = None):
+        """
+        Updates the unseen nodes' embeddings to have a weighted average of embeddings of highly interacting nodes.
+        :param nodes_to_consider (src/dst in bipartite, all in non-bipartite): (p)
+	    :param node_interact_times: numpy.ndarray (n)
+	    :param use_node_memories: (p, d)
+	    :param num_combinations
+	    :param num_samples
+        :param log_dict
+        :return: new_node_embeddings
+        """
+        node_last_k_updated_times = self.memory_bank.node_last_k_updated_times[nodes_to_consider]
+
+        ## Calculate the weights according to each strategy for all the nodes
+        weights = None
+        if self.attfus:
+            weights = []
+            for name, tt in zip(self.init_weights, self.time_transformation_for_init):
+                # For each strategy, calculate weights for all nodes
+                if name == 'degree' or name == 'log-degree':
+                    num_partitions_total = self.time_partitioned_node_degrees.shape[0]
+                    check_time = float(torch.min(torch.from_numpy(node_interact_times)))
+                    partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.min_time) - 1
+                    weigh = self.time_partitioned_node_degrees[partition_num].clone()
+                    if name == 'log-degree':
+                        weigh = torch.log(torch.max(torch.ones(1).to(weigh.device), weigh))
+                else:
+                    last_k_times = node_last_k_updated_times
+                    curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
+                    weigh = tt(last_k_times - curr_time, curr_time)
+                weights.append(weigh)
+        else:
+            weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
+        
+        to_use_node_memories = use_node_memories.clone()
+        ## Calculate new inits 
+        if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for w in weights])):
+            # all the methods should give non-zero weights
+            new_inits = []
+            if self.training:
+                num_samples = num_combinations
+                num_nodes_per_sample = num_samples_per_combination
+            else:
+                num_samples = 2
+                num_nodes_per_sample = self.num_nodes
+            # Sample nodes for aggregation
+            samples = self.sample_nodes_acc_to_degree(num_samples=num_samples, num_nodes_per_sample=num_nodes_per_sample)
+            # shape: (num_samples, num_nodes_per_sample)
+            # Aggregate the node embeddings for the sampled sets to get many inits
+            for weigh in weights:
+                mems = to_use_node_memories[samples]
+                ws = weigh[samples]
+                new_node_init = (ws.unsqueeze(2) * mems).sum(dim = 1) / ws.sum(dim = 1).reshape(-1, 1)
+                # Take weighted average for each sample
+                new_inits.append(new_node_init.unsqueeze(1))
+            # Concat all samples
+            new_init_embeds = torch.cat(new_inits, dim = 1)
+            # Run attention fusion operation on all samples to get new_init
+            new_init = self.attfus(new_init_embeds, log_dict)
+            if log_dict:
+                log_dict['new_init_mean'] = torch.mean(new_init.detach())
+                log_dict['new_init_std'] = torch.std(new_init.detach())
+            del new_init, new_init_embeds, new_inits, samples, weights, to_use_node_memories, ws, weigh, new_node_init, node_last_k_updated_times
+            # if method was successful, the return True flag and the new_init
+            return True, new_init
+        else:
+            del weights, samples, to_use_node_memories, node_last_k_updated_times
+            # otherwise, return False flag
+            return False, None
+    
     def get_init_node_memory_from_degree(self, node_ids, node_memories, node_memories_ids, node_interact_times, log_dict):
         """
         Updates the unseen nodes' embeddings to have a weighted average of embeddings of highly interacting nodes.
         node_ids: which node_ids are relevant
         node_memories: to update into and to calculate weighted average from
         """
+        # get_updated --> node_ids: all_nodes, node_memories: all_nodes_memories(updated) node_memories_ids: all_nodes
+        # update --> node_ids: (src,dst), node_memories: (src_mem, dst_mem) updated, node_memories_ids: src,dst which got updated(had previous intrs)
         node_memories_ids = torch.from_numpy(node_memories_ids)
         node_ids = torch.from_numpy(node_ids).to(self.device)
         
@@ -309,16 +423,7 @@ class MemoryModel(torch.nn.Module):
         
         node_memories_ids = node_memories_ids.to(self.device)
         weights = None
-        # If initialisation weight is degree or log degree
-        if self.init_weights == 'degree' or self.init_weights == 'log-degree':
-            num_partitions_total = self.time_partitioned_node_degrees.shape[0]
-            check_time = float(torch.min(torch.from_numpy(node_interact_times)))
-            partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.min_time) - 1
-            weights = self.time_partitioned_node_degrees[partition_num].clone()
-            if self.init_weights == 'log-degree':
-                weights = torch.log(torch.max(torch.ones(1).to(weights.device), weights))
-        
-        elif self.attfus:
+        if self.attfus:
             weights = []
             for name, tt in zip(self.init_weights, self.time_transformation_for_init):
                 if name == 'degree' or name == 'log-degree':
@@ -389,20 +494,7 @@ class MemoryModel(torch.nn.Module):
                 log_dict['new_init_mean'] = torch.mean(new_init_repeated.detach())
                 log_dict['new_init_std'] = torch.std(new_init_repeated.detach())
             del new_init_repeated, cloned, mask, new_init, new_init_embeds, new_inits, samples, weights, to_use_node_memories
-        elif not self.attfus and weights is not None and torch.any(weights != 0):
-            new_init = (weights.view(to_use_node_memories.shape[0], 1) * to_use_node_memories).sum(dim=0)/weights.sum()
-            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            new_init_repeated = new_init.reshape(-1, 172).repeat(to_use_node_memories.shape[0], 1)
-            new_init_repeated[new_node_ids] += new_init
-            mask = torch.zeros(to_use_node_memories.shape[0]).to(self.device)
-            mask[new_node_ids] = 1
-            if log_dict:
-                log_dict['new_init_mean'] = torch.mean(new_init_repeated)
-                log_dict['new_init_std'] = torch.std(new_init_repeated)
-            # Update memories
-            use_node_memories = to_use_node_memories + (mask.unsqueeze(-1) * new_init_repeated)
         else:
-            # first interval case
             return node_memories_ids.cpu().detach().numpy(), node_memories
         
         if node_memories_ids.shape[0] == self.num_nodes:
@@ -414,9 +506,12 @@ class MemoryModel(torch.nn.Module):
                 node_ids_to_update = new_node_ids
             return node_ids_to_update.cpu().detach().numpy(), use_node_memories[node_ids_to_update]
 
-    def sample_nodes_acc_to_degree(self, num_samples, num_nodes_per_sample = 200):
+    def sample_nodes_acc_to_degree(self, num_samples, node_interact_counts = None, num_nodes_per_sample = 200):
         # Sample nodes 
-        probs = self.memory_bank.node_interact_counts ** 0.75
+        if node_interact_counts is not None:
+            probs = node_interact_counts ** 0.75
+        else:
+            probs = self.memory_bank.node_interact_counts ** 0.75
         samples = torch.multinomial(probs.reshape(1, -1).repeat(num_samples, 1), num_nodes_per_sample, replacement = False)
         return samples
         
