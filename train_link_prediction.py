@@ -93,8 +93,8 @@ if __name__ == "__main__":
         test_ratio=args.test_ratio,
     )
 
-    src_node_ids = full_data.src_node_ids.unique()
-    dst_node_ids = full_data.dst_node_ids.unique()
+    src_node_ids = torch.from_numpy(full_data.src_node_ids).unique()
+    dst_node_ids = torch.from_numpy(full_data.dst_node_ids).unique()
     src_node_set = set(src_node_ids.tolist())
     dst_node_set = set(dst_node_ids.tolist())
     bipartite = False
@@ -298,7 +298,7 @@ if __name__ == "__main__":
                     use_init_method = args.use_init_method,
                     total_time = total_time,
                     attfus = args.attfus,
-                    bipartite = args.bipartite,
+                    bipartite = bipartite,
                     src_nodes = torch.LongTensor(list(src_node_set)),
                     dst_nodes = torch.LongTensor(list(dst_node_set)),
                 )
