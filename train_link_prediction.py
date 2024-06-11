@@ -98,8 +98,8 @@ if __name__ == "__main__":
     src_node_set = set(src_node_ids.tolist())
     dst_node_set = set(dst_node_ids.tolist())
     bipartite = False
-    if len(src_node_set.intersection(dst_node_set)) == 0:
-        bipartite = True
+    # if len(src_node_set.intersection(dst_node_set)) == 0:
+        # bipartite = True
     
     # initialize training neighbor sampler to retrieve temporal graph
     train_neighbor_sampler = get_neighbor_sampler(

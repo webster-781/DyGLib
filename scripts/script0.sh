@@ -1,6 +1,7 @@
 # datasets=("ia-escorts-dynamic" "ia-digg-reply" "ia-reality-call" "ia-retweet-pol" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m")
 datasets=("ia-retweet-pol" "ia-escorts-dynamic" "ia-movielens-user2tags-10m")
-gpu_choices=(1 0 2)
+# datasets=("ia-retweet-pol")
+gpu_choices=(1 2)
 len=${#gpu_choices[@]}
 declare -a init_methods=(
                  "time-exp time-linear"

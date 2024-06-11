@@ -219,18 +219,19 @@ class MemoryModel(torch.nn.Module):
         if self.use_init_method:
             if not self.bipartite:
                 flag, new_init = self.get_init_node_memory(nodes_to_consider=node_ids, use_node_memories=updated_node_memories, node_interact_times=node_interact_times, log_dict = log_dict)
-                updated_node_memories = self.update_some_memories(flag = flag, node_memories=updated_node_memories, node_ids=node_ids, new_init=new_init)
+                updated_node_memories = self.update_some_memories(flag = flag, node_memories=updated_node_memories, node_ids=torch.from_numpy(node_ids), new_init=new_init)
             else:
                 src_flag, src_new_init = self.get_init_node_memory(nodes_to_consider=self.src_nodes, use_node_memories=updated_node_memories[self.src_nodes], node_interact_times=node_interact_times, log_dict = log_dict)
                 dst_flag, dst_new_init = self.get_init_node_memory(nodes_to_consider=self.dst_nodes, use_node_memories=updated_node_memories[self.dst_nodes], node_interact_times=node_interact_times, log_dict = log_dict)
-                updated_node_memories = self.update_some_memories(flag = src_flag, node_memories=updated_node_memories, node_ids=self.src_nodes, new_init=src_new_init)
-                updated_node_memories = self.update_some_memories(flag = dst_flag, node_memories=updated_node_memories, node_ids=self.dst_nodes, new_init=dst_new_init)
+                updated_node_memories = self.update_some_memories(flag = dst_flag, node_memories=updated_node_memories, node_ids=self.src_nodes, new_init=dst_new_init)
+                updated_node_memories = self.update_some_memories(flag = src_flag, node_memories=updated_node_memories, node_ids=self.dst_nodes, new_init=src_new_init)
                 
         return updated_node_memories, updated_node_last_updated_times
 
     def update_some_memories(self, flag, node_memories, node_ids, new_init):
         ## If flag, then update among node_ids, all new_nodes entries in node_memories with the random entry in new_init
         if flag:
+            node_ids = node_ids.to(self.device)
             new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
             mask = torch.zeros(self.num_nodes, dtype= torch.bool, device = node_memories.device)
             mask[new_node_ids] = True
