@@ -57,6 +57,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--init_weights', type = str, nargs='+', choices = ['degree', 'log-degree', 'time-exp', 'time-linear', 'time-fourier', 'time-mlp', 'time-mlp2', 'time-3unite', 'normal-dyg', 'time-quad', 'time-cubic', 'time-context'], default = [])
     parser.add_argument('--clip', type= float, help = 'clip val for grad of time-transformation operation', default = 1.0)
     parser.add_argument('--attfus', action = 'store_true', help='Use attention fusion on exp and linear')
+    parser.add_argument('--allfusion', action = 'store_true', help='Use all fusion new embed and old embedding')
     parser.add_argument('--predictor', type=str, default = 'mlp', choices=['mlp', 'inner'])
 
     try:

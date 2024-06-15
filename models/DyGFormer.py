@@ -14,7 +14,7 @@ from utils.utils import NeighborSampler, vectorized_update_mem_2d, get_latest_un
 class DyGFormer(nn.Module):
 
     def __init__(self, node_raw_features: np.ndarray, edge_raw_features: np.ndarray, neighbor_sampler: NeighborSampler,
-                 time_feat_dim: int, channel_embedding_dim: int, total_time :int, patch_size: int = 1, num_layers: int = 2, num_heads: int = 2, 
+                 time_feat_dim: int, channel_embedding_dim: int, total_time :int, bipartite, src_nodes = None, dst_nodes = None, patch_size: int = 1, num_layers: int = 2, num_heads: int = 2, 
                  dropout: float = 0.1, max_input_sequence_length: int = 512, device: str = 'cpu', use_init_method: bool = False, init_weights: str = 'degree', time_partitioned_node_degrees= None, min_time=0):
         """
         DyGFormer model.
@@ -51,6 +51,14 @@ class DyGFormer(nn.Module):
         self.init_weights = init_weights
         self.time_partitioned_node_degrees = time_partitioned_node_degrees
         self.min_time = min_time
+        self.all_nodes = torch.arange(self.num_nodes).numpy()
+        self.bipartite = bipartite
+        if self.bipartite:
+            self.src_nodes = src_nodes.detach().cpu().numpy()
+            self.dst_nodes = dst_nodes.detach().cpu().numpy()
+        else:
+            self.src_nodes = self.all_nodes
+            self.dst_nodes = self.all_nodes
 
         self.time_encoder = TimeEncoder(time_dim=time_feat_dim)
 
@@ -131,12 +139,13 @@ class DyGFormer(nn.Module):
         """
         # get the first-hop neighbors of source and destination nodes
         # three lists to store source nodes' first-hop neighbor ids, edge ids and interaction timestamp information, with batch_size as the list length
+        
         src_nodes_neighbor_ids_list, src_nodes_edge_ids_list, src_nodes_neighbor_times_list = \
-            self.neighbor_sampler.get_all_first_hop_neighbors(node_ids=src_node_ids, node_interact_times=node_interact_times)
+            self.neighbor_sampler.get_all_first_hop_neighbors_dygformer(node_ids=src_node_ids, node_interact_times=node_interact_times, nodes_to_consider=self.dst_nodes, probs=self.memory_bank.node_interact_counts[self.dst_nodes], num_samples_to_append=16, min_time = self.min_time)
 
         # three lists to store destination nodes' first-hop neighbor ids, edge ids and interaction timestamp information, with batch_size as the list length
         dst_nodes_neighbor_ids_list, dst_nodes_edge_ids_list, dst_nodes_neighbor_times_list = \
-            self.neighbor_sampler.get_all_first_hop_neighbors(node_ids=dst_node_ids, node_interact_times=node_interact_times)
+            self.neighbor_sampler.get_all_first_hop_neighbors_dygformer(node_ids=dst_node_ids, node_interact_times=node_interact_times, nodes_to_consider=self.src_nodes, probs=self.memory_bank.node_interact_counts[self.src_nodes], num_samples_to_append=16, min_time = self.min_time)
 
         # pad the sequences of first-hop neighbors for source and destination nodes
         # src_padded_nodes_neighbor_ids, ndarray, shape (batch_size, src_max_seq_length)

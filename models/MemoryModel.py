@@ -15,7 +15,7 @@ class MemoryModel(torch.nn.Module):
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, 
                  dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0, device: str = 'cpu', init_weights: str = 'degree',
-                 use_init_method = False, attfus = True, bipartite = False):
+                 use_init_method = False, attfus = True, bipartite = False, allfusion = False):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -73,6 +73,10 @@ class MemoryModel(torch.nn.Module):
             nn.Linear(self.memory_dim, self.memory_dim),
             nn.ReLU(),
         )
+        self.allfusion = allfusion
+        if self.allfusion:
+            self.attention_weights = nn.Parameter(torch.ones(2))  # learnable attention weights
+            self.decay_factor = nn.Parameter(torch.ones(1))       # learnable decay factor
         if self.use_init_method and self.attfus:
             self.attfus = AttentionFusion(self.memory_dim)
             self.time_transformation_for_init = nn.ModuleList(
@@ -232,12 +236,21 @@ class MemoryModel(torch.nn.Module):
         ## If flag, then update among node_ids, all new_nodes entries in node_memories with the random entry in new_init
         if flag:
             node_ids = node_ids.to(self.device)
-            new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
-            mask = torch.zeros(self.num_nodes, dtype= torch.bool, device = node_memories.device)
-            mask[new_node_ids] = True
-            new_inits = torch.zeros_like(node_memories)
-            new_inits = new_init[torch.randperm(mask.shape[0]) % new_init.shape[0]]
-            node_memories = node_memories + mask.unsqueeze(1) * new_inits
+            if self.allfusion:
+                degree = self.memory_bank.node_interact_counts[node_ids]
+                # Apply decay to new embedding
+                decay = torch.exp(-self.decay_factor * degree)           # reducing the effect of new embedding
+                effective_new_embedding = new_init[node_ids % new_init.shape[0]]
+
+                # Fuse embeddings with attention weights
+                node_memories = (1 - decay.reshape(-1, 1)) * node_memories + decay.reshape(-1, 1) * effective_new_embedding
+            else:
+                new_node_ids = node_ids[~self.memory_bank.is_node_seen[node_ids]]
+                mask = torch.zeros(self.num_nodes, dtype= torch.bool, device = node_memories.device)
+                mask[new_node_ids] = True
+                new_inits = torch.zeros_like(node_memories)
+                new_inits = new_init[torch.randperm(mask.shape[0]) % new_init.shape[0]]
+                node_memories = node_memories + mask.unsqueeze(1) * new_inits
         return node_memories
 
     def update_memories(self, node_ids: np.ndarray, node_raw_messages: dict, node_interact_times):

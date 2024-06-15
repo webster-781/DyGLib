@@ -402,6 +402,51 @@ class NeighborSampler:
 
         return nodes_neighbor_ids_list, nodes_edge_ids_list, nodes_neighbor_times_list
 
+    def get_all_first_hop_neighbors_dygformer(
+        self, node_ids: np.ndarray, node_interact_times: np.ndarray, nodes_to_consider: np.ndarray, probs: torch.tensor, num_samples_to_append:np.ndarray, min_time:torch.tensor,
+    ):
+        """
+        get historical neighbors of nodes in node_ids at the first hop with max_num_neighbors as the maximal number of neighbors (make the computation feasible)
+        :param node_ids: ndarray, shape (batch_size, ), node ids
+        :param node_interact_times: ndarray, shape (batch_size, ), node interaction times
+        :return:
+        """
+        # three lists to store the first-hop neighbor ids, edge ids and interaction timestamp information, with batch_size as the list length
+        nodes_neighbor_ids_list, nodes_edge_ids_list, nodes_neighbor_times_list = (
+            [],
+            [],
+            [],
+        )
+        flag = probs.sum() > 0
+        if flag:
+            samples = nodes_to_consider[torch.multinomial(probs.to(dtype= torch.float32, device = 'cpu').reshape(1, -1).repeat(node_ids.shape[0], 1) ** 0.75, num_samples_to_append, replacement = probs.size(-1) <= num_samples_to_append)]
+        # get the temporal neighbors at the first hop
+        for idx, (node_id, node_interact_time) in enumerate(
+            zip(node_ids, node_interact_times)
+        ):
+            # find neighbors that interacted with node_id before time node_interact_time
+            (
+                node_neighbor_ids,
+                node_edge_ids,
+                node_neighbor_times,
+                _,
+            ) = self.find_neighbors_before(
+                node_id=node_id,
+                interact_time=node_interact_time,
+                return_sampled_probabilities=False,
+            )
+            if flag:
+                node_neighbor_ids = np.concatenate((node_neighbor_ids, samples[idx]))
+                node_edge_ids = np.concatenate((node_edge_ids, np.zeros_like(samples[idx], dtype=int)))
+                node_neighbor_times = np.concatenate((node_neighbor_times, min_time * np.ones_like(samples[idx], dtype = np.float32)))
+                
+            nodes_neighbor_ids_list.append(node_neighbor_ids)
+            nodes_edge_ids_list.append(node_edge_ids)
+            nodes_neighbor_times_list.append(node_neighbor_times)
+
+        return nodes_neighbor_ids_list, nodes_edge_ids_list, nodes_neighbor_times_list
+
+
     def reset_random_state(self):
         """
         reset the random state by self.seed

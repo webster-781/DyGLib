@@ -99,7 +99,7 @@ if __name__ == "__main__":
     dst_node_set = set(dst_node_ids.tolist())
     bipartite = False
     # if len(src_node_set.intersection(dst_node_set)) == 0:
-        # bipartite = True
+    #     bipartite = True
     
     # initialize training neighbor sampler to retrieve temporal graph
     train_neighbor_sampler = get_neighbor_sampler(
@@ -204,7 +204,8 @@ if __name__ == "__main__":
                 "t1_factor_of_t2": args.t1_factor_of_t2,
                 "init_weights": args.init_weights,
                 "clip_time_transformation": args.clip,
-                "attfus": args.attfus
+                "attfus": args.attfus,
+                "allfusion": args.allfusion,
             },
             group="DygLib",
             name = run_name
@@ -301,6 +302,7 @@ if __name__ == "__main__":
                     bipartite = bipartite,
                     src_nodes = torch.LongTensor(list(src_node_set)),
                     dst_nodes = torch.LongTensor(list(dst_node_set)),
+                    allfusion = args.allfusion,
                 )
             elif args.model_name == "DecoLP":
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE
@@ -385,7 +387,10 @@ if __name__ == "__main__":
                     init_weights=args.init_weights,
                     time_partitioned_node_degrees = time_partitioned_node_degrees,
                     min_time = min_time,
-                    total_time = total_time
+                    total_time = total_time,
+                    bipartite=bipartite,
+                    src_nodes=src_node_ids,
+                    dst_nodes=dst_node_ids
                 )
             else:
                 raise ValueError(f"Wrong value for model_name {args.model_name}!")
