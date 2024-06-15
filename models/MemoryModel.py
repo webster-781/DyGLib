@@ -379,12 +379,12 @@ class MemoryModel(torch.nn.Module):
             to_use_node_memories = use_node_memories.clone()
             # all the methods should give non-zero weights
             new_inits = []
-            if self.training:
-                num_samples = num_combinations
-                num_nodes_per_sample = num_samples_per_combination
-            else:
-                num_samples = 2
-                num_nodes_per_sample = self.num_nodes
+            # if self.training:
+            num_samples = num_combinations
+            num_nodes_per_sample = num_samples_per_combination
+            # else:
+            #     num_samples = 2
+            #     num_nodes_per_sample = self.num_nodes
             # Sample nodes for aggregation
             samples = self.sample_nodes_acc_to_degree(num_samples=num_samples, num_nodes_per_sample=num_nodes_per_sample, node_interact_counts=self.memory_bank.node_interact_counts[nodes_to_consider])
             # shape: (num_samples, num_nodes_per_sample)
