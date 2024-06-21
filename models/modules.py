@@ -290,10 +290,10 @@ class TimeInitTransformExp(nn.Module):
         if curr_time == self.min_time:
             curr_time = curr_time * (1.01)
         lin_out = self.lin(time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)).reshape(n, k)
-        # zeros = torch.zeros(n, k).to(time_diffs.device)
-        # rows, cols = mask[:, 0], mask[:, 1]
-        # zeros[rows, cols] = lin_out[rows, cols]
-        exp_out = torch.exp(-torch.square(lin_out))
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        rows, cols = mask[:, 0], mask[:, 1]
+        zeros[rows, cols] = lin_out[rows, cols]
+        exp_out = torch.exp(-torch.square(zeros))
         output = torch.sum(exp_out, dim = 1)
         return output
 
@@ -315,10 +315,10 @@ class TimeInitTransformLinear(nn.Module):
             curr_time = curr_time * (1.01)
         mask = torch.argwhere(time_diffs - check_time != 0)
         lin_out = self.lin(time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)).reshape(n, k)
-        # zeros = torch.zeros(n, k).to(time_diffs.device)
-        # rows, cols = mask[:, 0], mask[:, 1]
-        # zeros[rows, cols] = lin_out[rows, cols]
-        output = torch.sum(lin_out, dim = 1)
+        zeros = torch.zeros(n, k).to(time_diffs.device)
+        rows, cols = mask[:, 0], mask[:, 1]
+        zeros[rows, cols] = lin_out[rows, cols]
+        output = torch.sum(zeros, dim = 1)
         return output
     
 class TimeInitTransformFourier(nn.Module):

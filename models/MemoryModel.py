@@ -236,7 +236,7 @@ class MemoryModel(torch.nn.Module):
             mask = torch.zeros(self.num_nodes, dtype= torch.bool, device = node_memories.device)
             mask[new_node_ids] = True
             new_inits = torch.zeros_like(node_memories)
-            new_inits = new_init[torch.randperm(mask.shape[0]) % new_init.shape[0]]
+            new_inits = new_init[torch.randperm(mask.shape[0]) % new_init.shape[0]].reshape(mask.shape[0], -1)
             node_memories = node_memories + mask.unsqueeze(1) * new_inits
         return node_memories
 
@@ -340,7 +340,7 @@ class MemoryModel(torch.nn.Module):
             assert self.embedding_module.neighbor_sampler.seed is not None
             self.embedding_module.neighbor_sampler.reset_random_state()
     
-    def get_init_node_memory(self, nodes_to_consider, node_interact_times, use_node_memories, num_combinations = 64, num_samples = 800, num_samples_per_combination = 200, log_dict = None):
+    def get_init_node_memory(self, nodes_to_consider, node_interact_times, use_node_memories, num_combinations = 32, num_samples = 400, num_samples_per_combination = 200, log_dict = None):
         """
         Updates the unseen nodes' embeddings to have a weighted average of embeddings of highly interacting nodes.
         :param nodes_to_consider (src/dst in bipartite, all in non-bipartite): (p)
@@ -375,16 +375,16 @@ class MemoryModel(torch.nn.Module):
             weights = self.time_transformation_for_init(last_k_times - curr_time, curr_time)
         
         ## Calculate new inits 
-        if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for w in weights])):
+        if self.attfus and weights is not None and torch.all(torch.tensor([torch.any(w != 0) for w in weights])) and self.memory_bank.node_interact_counts[nodes_to_consider].sum() > 0:
             to_use_node_memories = use_node_memories.clone()
             # all the methods should give non-zero weights
             new_inits = []
-            # if self.training:
-            num_samples = num_combinations
-            num_nodes_per_sample = num_samples_per_combination
-            # else:
-            #     num_samples = 2
-            #     num_nodes_per_sample = self.num_nodes
+            if self.training:
+                num_samples = num_combinations
+                num_nodes_per_sample = num_samples_per_combination
+            else:
+                num_samples = 2
+                num_nodes_per_sample = self.num_nodes
             # Sample nodes for aggregation
             samples = self.sample_nodes_acc_to_degree(num_samples=num_samples, num_nodes_per_sample=num_nodes_per_sample, node_interact_counts=self.memory_bank.node_interact_counts[nodes_to_consider])
             # shape: (num_samples, num_nodes_per_sample)
