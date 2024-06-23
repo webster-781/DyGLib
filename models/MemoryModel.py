@@ -387,8 +387,9 @@ class MemoryModel(torch.nn.Module):
             # all the methods should give non-zero weights
             new_inits = []
             if self.training:
-                num_samples = self.num_combinations
-                num_nodes_per_sample = self.num_samples_per_combination
+                # if self.num_samples_per_combination = -1, then we use all nodes
+                num_samples = self.num_combinations if self.num_samples_per_combination > 0 else 2
+                num_nodes_per_sample = self.num_samples_per_combination if self.num_samples_per_combination > 0 else self.num_nodes
             else:
                 num_samples = 2
                 num_nodes_per_sample = self.num_nodes
