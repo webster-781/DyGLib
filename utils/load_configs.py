@@ -46,8 +46,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--test_ratio', type=float, default=0.15, help='ratio of test set')
     parser.add_argument('--num_runs', type=int, default=5, help='number of runs')
     parser.add_argument('--test_interval_epochs', type=int, default=10, help='how many epochs to perform testing once')
-    parser.add_argument('--negative_sample_strategy', type=str, default='random', choices=['random', 'historical', 'inductive'],
-                        help='strategy for the negative edge sampling')
+    parser.add_argument('--negative_sample_strategy', type=str, default='random', choices=['random', 'historical', 'inductive'], help='strategy for the negative edge sampling')
     parser.add_argument('--load_best_configs', action='store_true', default=False, help='whether to load the best configurations')
     parser.add_argument('--use_wandb', type = str, default = 'no', help='do you want to track this run using wandb? If arg is `no`, then don`t track. Else, track using wandb and name the run `run_name_dataset`')
     parser.add_argument('--use_ROPe', action = 'store_true', help='Use ROPe embeddings for DecoLP')
@@ -58,6 +57,8 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--clip', type= float, help = 'clip val for grad of time-transformation operation', default = 1.0)
     parser.add_argument('--attfus', action = 'store_true', help='Use attention fusion on exp and linear')
     parser.add_argument('--predictor', type=str, default = 'mlp', choices=['mlp', 'inner'])
+    parser.add_argument('--num_combinations', type=int, default = 32, help = 'Number of combinations of high degree nodes for finding new embeddings')
+    parser.add_argument('--num_samples_per_combination', type=int, default = 200, help = 'Number of samples per combination, use -1 for using all nodes')
 
     try:
         args = parser.parse_args()

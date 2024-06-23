@@ -291,8 +291,9 @@ class TimeInitTransformExp(nn.Module):
             curr_time = curr_time * (1.01)
         lin_out = self.lin(time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)).reshape(n, k)
         zeros = torch.zeros(n, k).to(time_diffs.device)
-        rows, cols = mask[:, 0], mask[:, 1]
-        zeros[rows, cols] = lin_out[rows, cols]
+        # rows, cols = mask[:, 0], mask[:, 1]
+        # zeros[rows, cols] = lin_out[rows, cols]
+        zeros = lin_out
         exp_out = torch.exp(-torch.square(zeros))
         output = torch.sum(exp_out, dim = 1)
         return output
@@ -316,8 +317,9 @@ class TimeInitTransformLinear(nn.Module):
         mask = torch.argwhere(time_diffs - check_time != 0)
         lin_out = self.lin(time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)).reshape(n, k)
         zeros = torch.zeros(n, k).to(time_diffs.device)
-        rows, cols = mask[:, 0], mask[:, 1]
-        zeros[rows, cols] = lin_out[rows, cols]
+        # rows, cols = mask[:, 0], mask[:, 1]
+        # zeros[rows, cols] = lin_out[rows, cols]
+        zeros = lin_out
         output = torch.sum(zeros, dim = 1)
         return output
     

@@ -105,7 +105,7 @@ class DyGFormer(nn.Module):
             dst_unique_ids, dst_latest_indices = get_latest_unique_indices(torch.from_numpy(dst_node_ids))
             
             self.memory_bank.node_memories[src_unique_ids] = src_embs[src_latest_indices].clone().detach()
-            self.memory_bank.node_memories[dst_unique_ids] = src_embs[dst_latest_indices].clone().detach()
+            self.memory_bank.node_memories[dst_unique_ids] = dst_embs[dst_latest_indices].clone().detach()
             
             self.memory_bank.node_last_updated_times[src_unique_ids] = torch.from_numpy(node_interact_times)[src_latest_indices].float().to(self.device)
             self.memory_bank.node_last_updated_times[dst_unique_ids] = torch.from_numpy(node_interact_times)[dst_latest_indices].float().to(self.device)

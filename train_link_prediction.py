@@ -204,7 +204,9 @@ if __name__ == "__main__":
                 "t1_factor_of_t2": args.t1_factor_of_t2,
                 "init_weights": args.init_weights,
                 "clip_time_transformation": args.clip,
-                "attfus": args.attfus
+                "attfus": args.attfus,
+                "num_combinations": args.num_combinations,
+                "num_samples_per_combination": args.num_samples_per_combination,                
             },
             group="DygLib",
             name = run_name
@@ -301,6 +303,8 @@ if __name__ == "__main__":
                     bipartite = bipartite,
                     src_nodes = torch.LongTensor(list(src_node_set)),
                     dst_nodes = torch.LongTensor(list(dst_node_set)),
+                    num_combinations = args.num_combinations,
+                    num_samples_per_combination = args.num_samples_per_combination
                 )
             elif args.model_name == "DecoLP":
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE
@@ -640,10 +644,10 @@ if __name__ == "__main__":
                         pos_corr_intrs = torch.argwhere(positive_probabilities > 0.5).reshape(-1)
                         neg_corr_intrs = torch.argwhere(negative_probabilities <= 0.5).reshape(-1)
                         if len(pos_corr_intrs) > 0:
-                            pos_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_src_node_ids[pos_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_dst_node_ids[pos_corr_intrs.cpu()]].reshape(-1)))
+                            pos_interact_corr_counts = torch.maximum(model[0].memory_bank.node_interact_counts[batch_src_node_ids[pos_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_dst_node_ids[pos_corr_intrs.cpu()]].reshape(-1))
                             pos_corr.scatter_add_(0, pos_interact_corr_counts, torch.ones_like(pos_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
                         if len(neg_corr_intrs) > 0:
-                            neg_interact_corr_counts = torch.cat((model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids[neg_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids[neg_corr_intrs.cpu()]].reshape(-1)))
+                            neg_interact_corr_counts = torch.maximum(model[0].memory_bank.node_interact_counts[batch_neg_src_node_ids[neg_corr_intrs.cpu()]].reshape(-1), model[0].memory_bank.node_interact_counts[batch_neg_dst_node_ids[neg_corr_intrs.cpu()]].reshape(-1))
                             neg_corr.scatter_add_(0, neg_interact_corr_counts, torch.ones_like(neg_interact_corr_counts, device = pos_interact_counts.device, dtype = pos_total.dtype))
                         # Add 1 to each index for `corr` examples counting.
                     
@@ -662,7 +666,6 @@ if __name__ == "__main__":
                     if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
                         # detach the memories and raw messages of nodes in the memory bank after each batch, so we don't back propagate to the start of time
                         model[0].memory_bank.detach_memory_bank()
-                
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
                     # backup memory bank after training so it can be used for new validation nodes
                     train_backup_memory_bank = model[0].memory_bank.backup_memory_bank()
@@ -701,13 +704,13 @@ if __name__ == "__main__":
                     num_nodes=max_deg
                 )
                 
-                # if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
-                #     train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
-                #     wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
-                #     val_histogram = get_wandb_histogram(val_hist)
-                #     wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
-                #     new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
-                #     wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
+                if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
+                    train_histogram = get_wandb_histogram([pos_corr, neg_corr, pos_total, neg_total])
+                    wandb_log_dict[f'train_acc_hist'] = wandb.Histogram(np_histogram=train_histogram)
+                    val_histogram = get_wandb_histogram(val_hist)
+                    wandb_log_dict[f'val_acc_hist'] = wandb.Histogram(np_histogram=val_histogram)
+                    new_node_val_histogram = get_wandb_histogram(new_node_val_hist)
+                    wandb_log_dict[f'new node val_acc_hist'] = wandb.Histogram(np_histogram=new_node_val_histogram)
                 
                 if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
                     # reload validation memory bank for testing nodes or saving models
@@ -784,10 +787,10 @@ if __name__ == "__main__":
                         num_nodes=max_deg
                     )
                     
-                    # test_histogram = get_wandb_histogram(test_hist)
-                    # wandb_log_dict[f'test_acc_hist'] = wandb.Histogram(np_histogram=test_histogram)
-                    # new_node_test_histogram = get_wandb_histogram(new_node_test_hist)
-                    # wandb_log_dict[f'new node test_acc_hist'] = wandb.Histogram(np_histogram=new_node_test_histogram)
+                    test_histogram = get_wandb_histogram(test_hist)
+                    wandb_log_dict[f'test_acc_hist'] = wandb.Histogram(np_histogram=test_histogram)
+                    new_node_test_histogram = get_wandb_histogram(new_node_test_hist)
+                    wandb_log_dict[f'new node test_acc_hist'] = wandb.Histogram(np_histogram=new_node_test_histogram)
 
                     if args.model_name in ["JODIE", "DyRep", "TGN", "DecoLP", "DyGFormer"]:
                         # reload validation memory bank for testing nodes or saving models

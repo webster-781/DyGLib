@@ -15,7 +15,7 @@ class MemoryModel(torch.nn.Module):
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, 
                  dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0, device: str = 'cpu', init_weights: str = 'degree',
-                 use_init_method = False, attfus = True, bipartite = False):
+                 use_init_method = False, attfus = True, bipartite = False, num_combinations = 32, num_samples_per_combination = 200):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -43,6 +43,7 @@ class MemoryModel(torch.nn.Module):
         self.num_layers = num_layers
         self.num_heads = num_heads
         self.min_time = min_time
+        self.total_time = total_time
         self.dropout = dropout
         self.device = device
         self.src_node_mean_time_shift = src_node_mean_time_shift
@@ -55,6 +56,8 @@ class MemoryModel(torch.nn.Module):
         self.bipartite = bipartite
         self.src_nodes = src_nodes.to(self.device)
         self.dst_nodes = dst_nodes.to(self.device)
+        self.num_samples_per_combination = num_samples_per_combination
+        self.num_combinations = num_combinations
         if time_partitioned_node_degrees is not None:
             self.time_partitioned_node_degrees = time_partitioned_node_degrees.to(self.device)
         else:
@@ -187,7 +190,8 @@ class MemoryModel(torch.nn.Module):
             # store new raw messages for source and destination nodes
             self.memory_bank.store_node_raw_messages(node_ids=unique_src_node_ids, new_node_raw_messages=new_src_node_raw_messages)
             self.memory_bank.store_node_raw_messages(node_ids=unique_dst_node_ids, new_node_raw_messages=new_dst_node_raw_messages)
-
+            self.memory_bank.node_interact_counts.scatter_add_(0, torch.from_numpy(src_node_ids).to(device = self.device), torch.ones(src_node_ids.shape[0], dtype = torch.int64, device = self.device))
+            self.memory_bank.node_interact_counts.scatter_add_(0, torch.from_numpy(dst_node_ids).to(device = self.device), torch.ones(dst_node_ids.shape[0], dtype = torch.int64, device = self.device))
         # DyRep does not use embedding module, which instead uses updated_node_memories based on previous raw messages and historical memories
         if self.model_name == 'DyRep':
             src_node_embeddings = updated_node_memories[torch.from_numpy(src_node_ids)]
@@ -340,7 +344,7 @@ class MemoryModel(torch.nn.Module):
             assert self.embedding_module.neighbor_sampler.seed is not None
             self.embedding_module.neighbor_sampler.reset_random_state()
     
-    def get_init_node_memory(self, nodes_to_consider, node_interact_times, use_node_memories, num_combinations = 32, num_samples = 400, num_samples_per_combination = 200, log_dict = None):
+    def get_init_node_memory(self, nodes_to_consider, node_interact_times, use_node_memories, log_dict = None):
         """
         Updates the unseen nodes' embeddings to have a weighted average of embeddings of highly interacting nodes.
         :param nodes_to_consider (src/dst in bipartite, all in non-bipartite): (p)
@@ -362,10 +366,13 @@ class MemoryModel(torch.nn.Module):
                 if name == 'degree' or name == 'log-degree':
                     num_partitions_total = self.time_partitioned_node_degrees.shape[0]
                     check_time = float(torch.min(torch.from_numpy(node_interact_times)))
-                    partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.min_time) - 1
-                    weigh = self.time_partitioned_node_degrees[partition_num][nodes_to_consider].clone()
+                    partition_num = math.floor((check_time-self.min_time)*num_partitions_total/self.total_time) - 1
+                    if partition_num < 0:
+                        weigh = self.memory_bank.node_interact_counts[nodes_to_consider].clone()
+                    else:
+                        weigh = self.time_partitioned_node_degrees[partition_num][nodes_to_consider].clone()
                     if name == 'log-degree':
-                        weigh = torch.log(torch.max(torch.ones(1).to(weigh.device), weigh))
+                        weigh = torch.log(torch.max(torch.ones(1).to(weigh.device) + 0.0101, weigh))
                 else:
                     last_k_times = node_last_k_updated_times
                     curr_time = torch.max(torch.from_numpy(node_interact_times)).to(self.device)
@@ -380,8 +387,8 @@ class MemoryModel(torch.nn.Module):
             # all the methods should give non-zero weights
             new_inits = []
             if self.training:
-                num_samples = num_combinations
-                num_nodes_per_sample = num_samples_per_combination
+                num_samples = self.num_combinations
+                num_nodes_per_sample = self.num_samples_per_combination
             else:
                 num_samples = 2
                 num_nodes_per_sample = self.num_nodes
@@ -413,9 +420,9 @@ class MemoryModel(torch.nn.Module):
     def sample_nodes_acc_to_degree(self, num_samples, node_interact_counts = None, num_nodes_per_sample = 200):
         # Sample nodes 
         if node_interact_counts is not None:
-            probs = node_interact_counts ** 0.75
+            probs = node_interact_counts ** 0.5
         else:
-            probs = self.memory_bank.node_interact_counts ** 0.75
+            probs = self.memory_bank.node_interact_counts ** 0.5
         samples = torch.multinomial(probs.reshape(1, -1).repeat(num_samples, 1), num_nodes_per_sample, replacement = probs.size(-1) <= num_nodes_per_sample)
         return samples
         
@@ -560,7 +567,6 @@ class MemoryBank(nn.Module):
         """
         for node_id in node_ids:
             self.is_node_seen[node_id] = True
-            self.node_interact_counts[node_id] += 1
             self.node_raw_messages[node_id].extend(new_node_raw_messages[node_id])
 
     def clear_node_raw_messages(self, node_ids: np.ndarray):

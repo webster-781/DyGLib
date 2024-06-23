@@ -868,6 +868,7 @@ def find_partition_node_degrees_for_new_node_init(dataset_name: str, t1_factor_o
     node1 = edge_data['u'].tolist()
     node2 = edge_data['i'].tolist()
     num_nodes = max(node1 + node2) + 1
+    num_edges = len(node1)
     edge_feats = torch.ones(len(node1)).tolist()
     total_time = ts[-1] - ts[0]
     min_time = ts[0]
@@ -900,6 +901,12 @@ def find_partition_node_degrees_for_new_node_init(dataset_name: str, t1_factor_o
                 # Move the counter ahead
                 p1 += 1
             
+            old_deg_to_append = old_deg.clone()
+            iterating_index = 1
+            ## If some time, there is less activity in the graph, then we should take from previous knowledge of degrees
+            while old_deg_to_append.sum() < (t1_factor_of_t2 * t2_factor * num_edges)/2 and iterating_index <= len(time_partitioned_node_degrees):
+                old_deg_to_append += torch.tensor(time_partitioned_node_degrees[-iterating_index], dtype = torch.float32)
+                iterating_index += 1
             time_partitioned_node_degrees.append(old_deg.clone().tolist())
     
     time_partitioned_node_degrees = torch.tensor(time_partitioned_node_degrees)
@@ -982,27 +989,76 @@ def vectorized_update_mem_2d(
 def get_wandb_histogram(hist):
     [pos_corr, neg_corr, pos_total, neg_total] = hist
     print("***** CALCULATING HISTOGRAM *****")
-    max_deg = max(torch.max(torch.nonzero(pos_total)), torch.max(torch.nonzero(pos_total))) + 1
-    accs = torch.zeros(max_deg)
-    n_buckets = (max_deg//5 + 1)
-    for bucket in range(n_buckets):
-        corr = sum([pos_corr[deg] + neg_corr[deg] for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5))])
-        total = sum([pos_total[deg] + neg_total[deg] for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5))])
-        for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5)):
-            accs[deg] = corr/total
-    accs = smooth_tensor(accs).cpu().numpy()
-    bins = torch.arange(0, max_deg+1).cpu().numpy()
+
+    max_deg = max(torch.max(torch.nonzero(pos_total)), torch.max(torch.nonzero(neg_total))) + 1
+    num_indices = max_deg.item()
+    
+    # Determine the number of bins
+    num_bins = min(num_indices, 256)
+    bins = torch.linspace(0, num_indices, steps=num_bins+1, dtype=torch.int32, device = pos_corr.device)
+    
+    # Set up accumulators
+    accs = torch.zeros(num_bins, device = pos_corr.device)
+    bin_counts = torch.zeros(num_bins, device = pos_corr.device)
+    
+    # Fill the bins
+    for i in range(num_indices):
+        bin_idx = torch.bucketize(i, bins) - 1
+        corr = pos_corr[i] + neg_corr[i]
+        total = pos_total[i] + neg_total[i]
+        accs[bin_idx] += corr
+        bin_counts[bin_idx] += total
+    
+    # Compute accuracies
+    for i in range(num_bins):
+        if bin_counts[i] > 0:
+            accs[i] /= bin_counts[i]
+        else:
+            accs[i] = 0
+
+    # Check number of indices in each bin and smooth if necessary
+    if num_bins//num_indices <= 10:
+        accs = smooth_tensor_by_bins(accs)
+    else:
+        accs = accs.cpu().numpy()
+    
+    bins = bins.cpu().numpy()
     print("***** CALCULATED HISTOGRAM *****")
+    del bin_counts
     return accs, bins
 
-def smooth_tensor(x):
-    nan_indices = x.isnan().argwhere().reshape(-1)
-    new_x = x.clone()
-    for idx in nan_indices:
-        start_index = max(0, idx.item() - 10)
-        end_index = min(len(x), idx.item() + 11)
-        new_x[idx] = torch.nanmean(x[start_index:end_index])
-    return new_x
+def smooth_tensor_by_bins(tensor):
+    smoothed = torch.zeros(len(tensor))
+    for i in range(len(tensor)):
+        start = max(0, i - 2)  # One bin before
+        end = min(len(tensor), i + 3)  # One bin after
+        smoothed[i] = torch.mean(tensor[start:end])
+    return smoothed
+
+# def get_wandb_histogram(hist):
+#     [pos_corr, neg_corr, pos_total, neg_total] = hist
+#     print("***** CALCULATING HISTOGRAM *****")
+#     max_deg = max(torch.max(torch.nonzero(pos_total)), torch.max(torch.nonzero(pos_total))) + 1
+#     accs = torch.zeros(max_deg)
+#     n_buckets = (max_deg//5 + 1)
+#     for bucket in range(n_buckets):
+#         corr = sum([pos_corr[deg] + neg_corr[deg] for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5))])
+#         total = sum([pos_total[deg] + neg_total[deg] for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5))])
+#         for deg in range(bucket * 5, min(max_deg, (bucket+1) * 5)):
+#             accs[deg] = corr/total
+#     accs = smooth_tensor(accs).cpu().numpy()
+#     bins = torch.arange(0, max_deg+1).cpu().numpy()
+#     print("***** CALCULATED HISTOGRAM *****")
+#     return accs, bins
+
+# def smooth_tensor(x):
+#     nan_indices = x.isnan().argwhere().reshape(-1)
+#     new_x = x.clone()
+#     for idx in nan_indices:
+#         start_index = max(0, idx.item() - 10)
+#         end_index = min(len(x), idx.item() + 11)
+#         new_x[idx] = torch.nanmean(x[start_index:end_index])
+#     return new_x
 
 def get_latest_unique_indices(tensor):
     unique, inverse = torch.unique(tensor, sorted=True, return_inverse=True)
