@@ -51,10 +51,12 @@ class MergeLayer(nn.Module):
         """
         super().__init__()
         self.predictor = predictor
-        if self.predictor == 'mlp':
+        if self.predictor == 'mlp_diff':
+            self.fc1 = nn.Linear(input_dim1, hidden_dim)
+        elif self.predictor == 'mlp':
             self.fc1 = nn.Linear(input_dim1 + input_dim2, hidden_dim)
-            self.fc2 = nn.Linear(hidden_dim, output_dim)
-            self.act = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
+        self.act = nn.ReLU()
 
     def forward(self, input_1: torch.Tensor, input_2: torch.Tensor):
         """
@@ -63,7 +65,12 @@ class MergeLayer(nn.Module):
         :param input_2: Tensor, shape (*, input_dim2)
         :return:
         """
-        if self.predictor == 'mlp':
+        if self.predictor == 'mlp_diff':
+            # Tensor, shape (*, input_dim1 + input_dim2)
+            x = input_1 - input_2
+            # Tensor, shape (*, output_dim)
+            h = self.fc2(self.act(self.fc1(x)))
+        elif self.predictor == 'mlp':
             # Tensor, shape (*, input_dim1 + input_dim2)
             x = torch.cat([input_1, input_2], dim=1)
             # Tensor, shape (*, output_dim)
@@ -291,9 +298,9 @@ class TimeInitTransformExp(nn.Module):
             curr_time = curr_time * (1.01)
         lin_out = self.lin(time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)).reshape(n, k)
         zeros = torch.zeros(n, k).to(time_diffs.device)
-        rows, cols = mask[:, 0], mask[:, 1]
-        zeros[rows, cols] = lin_out[rows, cols]
-        # zeros = lin_out
+        # rows, cols = mask[:, 0], mask[:, 1]
+        # zeros[rows, cols] = lin_out[rows, cols]
+        zeros = lin_out
         exp_out = torch.exp(-torch.square(zeros))
         output = torch.sum(exp_out, dim = 1)
         return output
@@ -317,9 +324,9 @@ class TimeInitTransformLinear(nn.Module):
         mask = torch.argwhere(time_diffs - check_time != 0)
         lin_out = self.lin(time_diffs.reshape(n, k, 1)/(curr_time-self.min_time)).reshape(n, k)
         zeros = torch.zeros(n, k).to(time_diffs.device)
-        rows, cols = mask[:, 0], mask[:, 1]
-        zeros[rows, cols] = lin_out[rows, cols]
-        # zeros = lin_out
+        # rows, cols = mask[:, 0], mask[:, 1]
+        # zeros[rows, cols] = lin_out[rows, cols]
+        zeros = lin_out
         output = torch.sum(zeros, dim = 1)
         return output
     
@@ -535,28 +542,29 @@ class AttentionFusion(torch.nn.Module):
         self.linear = torch.nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=True)
         self.tanh = nn.Tanh()
         self.softmax = nn.Softmax(dim = 1)
+        self.c = torch.nn.Parameter(torch.tensor([0.5]))
 
     def forward(self, embeds: torch.Tensor, log_dict: dict):
         # embeds shape (n, m, d): n - number of nodes, m - number of methods, d - embed_dim
         n, m, d = embeds.shape
         if m == 1:
             return embeds.squeeze(0)
-        coeffs = self.query_vector(self.tanh(self.linear(embeds))).reshape(n, m)
-        attn_coeffs = self.softmax(coeffs)
+        # coeffs = self.query_vector(self.tanh(self.linear(embeds))).reshape(n, m)
+        # attn_coeffs = self.softmax(coeffs)
         # attn_coeffs shape: (n, m)
-        if log_dict:
-            ac = attn_coeffs.clone().cpu().detach()
-            if 'num_adds' in log_dict:
-                log_dict['num_adds'] += n
-            else:
-                log_dict['num_adds'] = n
-            for i in range(len(attn_coeffs)):
-                if f'attn_coeffs{i}' in log_dict:
-                    log_dict[f'attn_coeffs{i}'] += ac[i].sum()
-                else:
-                    log_dict[f'attn_coeffs{i}'] = ac[i].sum()
-                log_dict[f'attn_coeffs{i}_avg'] = log_dict[f'attn_coeffs{i}']/log_dict['num_adds']
-            del ac
-        output = (attn_coeffs.unsqueeze(2)*embeds).sum(dim = 1).squeeze()
-        del coeffs, attn_coeffs, 
+        # if log_dict:
+        #     ac = attn_coeffs.clone().cpu().detach()
+        #     if 'num_adds' in log_dict:
+        #         log_dict['num_adds'] += n
+        #     else:
+        #         log_dict['num_adds'] = n
+        #     for i in range(len(attn_coeffs)):
+        #         if f'attn_coeffs{i}' in log_dict:
+        #             log_dict[f'attn_coeffs{i}'] += ac[i].sum()
+        #         else:
+        #             log_dict[f'attn_coeffs{i}'] = ac[i].sum()
+        #         log_dict[f'attn_coeffs{i}_avg'] = log_dict[f'attn_coeffs{i}']/log_dict['num_adds']
+        #     del ac
+        output = (torch.tensor([self.c, 1 - self.c], device = embeds.device).reshape(1, 2, 1) *embeds).sum(dim = 1).squeeze()
+        # del coeffs, attn_coeffs, 
         return output

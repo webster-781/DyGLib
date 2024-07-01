@@ -18,7 +18,7 @@ from utils.DataLoader import Data
 
 def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_sampler: NeighborSampler, evaluate_idx_data_loader: DataLoader,
                                    evaluate_neg_edge_sampler: NegativeEdgeSampler, evaluate_data: Data, loss_func: nn.Module,
-                                   num_neighbors: int = 20, time_gap: int = 2000, num_nodes = 10000):
+                                   num_neighbors: int = 20, time_gap: int = 2000, num_nodes = 10000, device = 'cpu'):
     """
     evaluate models on the link prediction task
     :param model_name: str, name of the model
@@ -39,7 +39,7 @@ def evaluate_model_link_prediction(model_name: str, model: nn.Module, neighbor_s
     if model_name in ['DyRep', 'TGAT', 'TGN', 'CAWN', 'TCL', 'GraphMixer', 'DyGFormer']:
         # evaluation phase use all the graph information
         model[0].set_neighbor_sampler(neighbor_sampler)
-    pos_corr, neg_corr, pos_total, neg_total = torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device), torch.zeros(num_nodes, device = model[0].device)
+    pos_corr, neg_corr, pos_total, neg_total = torch.zeros(num_nodes, device = device), torch.zeros(num_nodes, device = device), torch.zeros(num_nodes, device = device), torch.zeros(num_nodes, device = device)
     model.eval()
 
     with torch.no_grad():

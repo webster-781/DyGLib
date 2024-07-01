@@ -170,7 +170,8 @@ if __name__ == "__main__":
                                                                          evaluate_data=val_data,
                                                                          loss_func=loss_func,
                                                                          num_neighbors=args.num_neighbors,
-                                                                         time_gap=args.time_gap)
+                                                                         time_gap=args.time_gap,
+                                                                         device = args.device)
 
                 new_node_val_losses, new_node_val_metrics = evaluate_model_link_prediction(model_name=args.model_name,
                                                                                            model=model,
@@ -180,7 +181,8 @@ if __name__ == "__main__":
                                                                                            evaluate_data=new_node_val_data,
                                                                                            loss_func=loss_func,
                                                                                            num_neighbors=args.num_neighbors,
-                                                                                           time_gap=args.time_gap)
+                                                                                           time_gap=args.time_gap,
+                                                                                           device = args.device)
 
             if args.model_name in ['JODIE', 'DyRep', 'TGN']:
                 # the memory in the best model has seen the validation edges, we need to backup the memory for new testing nodes
@@ -194,7 +196,8 @@ if __name__ == "__main__":
                                                                        evaluate_data=test_data,
                                                                        loss_func=loss_func,
                                                                        num_neighbors=args.num_neighbors,
-                                                                       time_gap=args.time_gap)
+                                                                       time_gap=args.time_gap,
+                                                                       device = args.device)
 
             if args.model_name in ['JODIE', 'DyRep', 'TGN']:
                 # reload validation memory bank for new testing nodes
@@ -208,7 +211,8 @@ if __name__ == "__main__":
                                                                                          evaluate_data=new_node_test_data,
                                                                                          loss_func=loss_func,
                                                                                          num_neighbors=args.num_neighbors,
-                                                                                         time_gap=args.time_gap)
+                                                                                         time_gap=args.time_gap,
+                                                                                         device = args.device)
             # store the evaluation metrics at the current run
             val_metric_dict, new_node_val_metric_dict, test_metric_dict, new_node_test_metric_dict = {}, {}, {}, {}
 

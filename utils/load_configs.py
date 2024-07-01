@@ -56,7 +56,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--init_weights', type = str, nargs='+', choices = ['degree', 'log-degree', 'time-exp', 'time-linear', 'time-fourier', 'time-mlp', 'time-mlp2', 'time-3unite', 'normal-dyg', 'time-quad', 'time-cubic', 'time-context'], default = [])
     parser.add_argument('--clip', type= float, help = 'clip val for grad of time-transformation operation', default = 1.0)
     parser.add_argument('--attfus', action = 'store_true', help='Use attention fusion on exp and linear')
-    parser.add_argument('--predictor', type=str, default = 'mlp', choices=['mlp', 'inner'])
+    parser.add_argument('--predictor', type=str, default = 'mlp', choices=['mlp', 'inner', 'mlp_diff'])
     parser.add_argument('--num_combinations', type=int, default = 32, help = 'Number of combinations of high degree nodes for finding new embeddings')
     parser.add_argument('--num_samples_per_combination', type=int, default = 200, help = 'Number of samples per combination, use -1 for using all nodes')
 

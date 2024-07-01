@@ -1021,7 +1021,6 @@ def get_wandb_histogram(hist):
         accs = smooth_tensor_by_bins(accs)
     else:
         accs = accs.cpu().numpy()
-    
     bins = bins.cpu().numpy()
     print("***** CALCULATED HISTOGRAM *****")
     del bin_counts

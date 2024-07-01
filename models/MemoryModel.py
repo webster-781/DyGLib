@@ -758,7 +758,7 @@ class GraphAttentionEmbedding(nn.Module):
                                                                       dropout=self.dropout) for _ in range(num_layers)])
         # follow the TGN paper, use merge layer to combine 1) the attention results, and 2) node raw feature + node memory
         self.merge_layers = nn.ModuleList([MergeLayer(input_dim1=self.node_feat_dim + self.time_feat_dim, input_dim2=self.node_feat_dim,
-                                                      hidden_dim=self.node_feat_dim, output_dim=self.node_feat_dim) for _ in range(num_layers)])
+                                                      hidden_dim=self.node_feat_dim, output_dim=self.node_feat_dim, predictor='mlp') for _ in range(num_layers)])
 
     def compute_node_temporal_embeddings(self, node_memories: torch.Tensor, node_ids: np.ndarray, node_interact_times: np.ndarray,
                                          current_layer_num: int, num_neighbors: int = 20):
