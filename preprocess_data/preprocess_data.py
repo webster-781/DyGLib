@@ -161,7 +161,9 @@ parser.add_argument('--dataset_name', type=str,
 parser.add_argument('--node_feat_dim', type=int, default=172, help='Number of node raw features')
 
 args = parser.parse_args()
-
+if "ia-" in args.dataset_name:
+    args.node_feat_dim = 32
+    
 print(f'preprocess dataset {args.dataset_name}...')
 if args.dataset_name in ['enron', 'SocialEvo', 'uci']:
     Path("../processed_data/{}/".format(args.dataset_name)).mkdir(parents=True, exist_ok=True)
