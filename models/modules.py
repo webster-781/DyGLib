@@ -549,22 +549,22 @@ class AttentionFusion(torch.nn.Module):
         n, m, d = embeds.shape
         if m == 1:
             return embeds.squeeze(0)
-        # coeffs = self.query_vector(self.tanh(self.linear(embeds))).reshape(n, m)
-        # attn_coeffs = self.softmax(coeffs)
+        coeffs = self.query_vector(self.tanh(self.linear(embeds))).reshape(n, m)
+        attn_coeffs = self.softmax(coeffs)
         # attn_coeffs shape: (n, m)
-        # if log_dict:
-        #     ac = attn_coeffs.clone().cpu().detach()
-        #     if 'num_adds' in log_dict:
-        #         log_dict['num_adds'] += n
-        #     else:
-        #         log_dict['num_adds'] = n
-        #     for i in range(len(attn_coeffs)):
-        #         if f'attn_coeffs{i}' in log_dict:
-        #             log_dict[f'attn_coeffs{i}'] += ac[i].sum()
-        #         else:
-        #             log_dict[f'attn_coeffs{i}'] = ac[i].sum()
-        #         log_dict[f'attn_coeffs{i}_avg'] = log_dict[f'attn_coeffs{i}']/log_dict['num_adds']
-        #     del ac
-        output = (torch.tensor([self.c, 1 - self.c], device = embeds.device).reshape(1, 2, 1) *embeds).sum(dim = 1).squeeze()
-        # del coeffs, attn_coeffs, 
+        if log_dict:
+            ac = attn_coeffs.clone().cpu().detach()
+            if 'num_adds' in log_dict:
+                log_dict['num_adds'] += n
+            else:
+                log_dict['num_adds'] = n
+            for i in range(len(attn_coeffs)):
+                if f'attn_coeffs{i}' in log_dict:
+                    log_dict[f'attn_coeffs{i}'] += ac[i].sum()
+                else:
+                    log_dict[f'attn_coeffs{i}'] = ac[i].sum()
+                log_dict[f'attn_coeffs{i}_avg'] = log_dict[f'attn_coeffs{i}']/log_dict['num_adds']
+            del ac
+        output = (attn_coeffs.unsqueeze(2)*embeds).sum(dim = 1).squeeze()
+        del coeffs, attn_coeffs
         return output

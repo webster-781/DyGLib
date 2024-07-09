@@ -15,10 +15,10 @@ def preprocess(dataset_name: str):
     u_list, i_list, ts_list, label_list = [], [], [], []
     feat_l = []
     idx_list = []
-
     with open(dataset_name) as f:
-        # skip the first line
-        s = next(f)
+        if not 'ia-' in dataset_name:
+            # skip the first line
+            s = next(f)
         previous_time = -1
         for idx, line in enumerate(f):
             e = line.strip().split(',')
@@ -36,7 +36,7 @@ def preprocess(dataset_name: str):
             label = float(e[3])
 
             # edge features
-            feat = np.array([float(x) for x in e[4:]])
+            feat = np.array([float(x) for x in e[3:]])
 
             u_list.append(u)
             i_list.append(i)
@@ -65,6 +65,9 @@ def reindex(df: pd.DataFrame, bipartite: bool = True):
         # check the ids of users and items
         assert (df.u.max() - df.u.min() + 1 == len(df.u.unique()))
         assert (df.i.max() - df.i.min() + 1 == len(df.i.unique()))
+        if df.u.min() == df.i.min() == 1:
+            df.u = df.u - df.u.min()
+            df.i = df.i - df.i.min()
         assert df.u.min() == df.i.min() == 0
 
         # if bipartite, discriminate the source and target node by unique ids (target node id is counted based on source node id)
@@ -166,7 +169,7 @@ if args.dataset_name in ['enron', 'SocialEvo', 'uci']:
     print(f'the original dataset of {args.dataset_name} is unavailable, directly use the processed dataset by previous works.')
 else:
     # bipartite dataset
-    if args.dataset_name in ['wikipedia', 'reddit', 'mooc', 'lastfm', 'myket']:
+    if args.dataset_name in ['wikipedia', 'reddit', 'mooc', 'lastfm', 'myket', 'ia-escorts-dynamic', 'ia-movielens-user2tags-10m']:
         preprocess_data(dataset_name=args.dataset_name, bipartite=True, node_feat_dim=args.node_feat_dim)
     else:
         preprocess_data(dataset_name=args.dataset_name, bipartite=False, node_feat_dim=args.node_feat_dim)
