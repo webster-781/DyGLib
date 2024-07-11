@@ -91,6 +91,7 @@ if __name__ == "__main__":
         dataset_name=args.dataset_name,
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
+        position_feat_dim=args.position_feat_dim
     )
 
     src_node_ids = torch.from_numpy(full_data.src_node_ids).unique()

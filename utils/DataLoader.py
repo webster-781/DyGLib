@@ -91,7 +91,7 @@ def get_first_masks(new_test_node_set, src_node_ids, dst_node_ids, train_mask, v
             nums[node2] += 1
     return first_masks
 
-def get_link_prediction_data(dataset_name: str, val_ratio: float, test_ratio: float, firsts = [1, 3, 10]):
+def get_link_prediction_data(dataset_name: str, val_ratio: float, test_ratio: float, position_feat_dim, firsts = [1, 3, 10]):
     """
     generate data for link prediction task (inductive & transductive settings)
     :param dataset_name: str, dataset name
@@ -105,7 +105,7 @@ def get_link_prediction_data(dataset_name: str, val_ratio: float, test_ratio: fl
     edge_raw_features = np.load('./processed_data/{}/ml_{}.npy'.format(dataset_name, dataset_name))
     node_raw_features = np.load('./processed_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name))
     if "ia-" in dataset_name:
-        NODE_FEAT_DIM = 32 # Since max 1 edge feature and no node feature
+        NODE_FEAT_DIM = position_feat_dim # Since max 1 edge feature and no node feature
         EDGE_FEAT_DIM = 4 # Since max 1 edge feature and no node feature
     else:
         NODE_FEAT_DIM = EDGE_FEAT_DIM = 172
