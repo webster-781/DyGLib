@@ -55,6 +55,8 @@ class MergeLayer(nn.Module):
             self.fc1 = nn.Linear(input_dim1, hidden_dim)
         elif self.predictor == 'mlp':
             self.fc1 = nn.Linear(input_dim1 + input_dim2, hidden_dim)
+        elif self.predictor == 'l2':
+            self.dist = nn.PairwiseDistance()
         self.fc2 = nn.Linear(hidden_dim, output_dim)
         self.act = nn.ReLU()
 
@@ -75,6 +77,8 @@ class MergeLayer(nn.Module):
             x = torch.cat([input_1, input_2], dim=1)
             # Tensor, shape (*, output_dim)
             h = self.fc2(self.act(self.fc1(x)))
+        elif self.predictor == 'l2':
+            x = self.dist(input_1, input_2).reshape(-1, 1)
         else:
             h = input_1 * input_2
             h = torch.sum(h, dim = 1)

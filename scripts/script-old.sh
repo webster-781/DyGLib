@@ -1,7 +1,7 @@
 # datasets=("ia-movielens-user2tags-10m" "ia-escorts-dynamic")
 datasets=("ia-escorts-dynamic" "ia-digg-reply" "ia-reality-call" "ia-retweet-pol" "ia-slashdot-reply-dir" "ia-movielens-user2tags-10m")
 # datasets=("ia-escorts-dynamic" )
-gpu_choices=(1 1 3 2 3 0)
+gpu_choices=(1 1 0 2 2 0)
 len=${#gpu_choices[@]}
 gpu_i=0
 gpu=${gpu_choices[gpu_i%len]}
