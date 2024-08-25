@@ -15,7 +15,7 @@ class MemoryModel(torch.nn.Module):
                  src_node_mean_time_shift: float = 0.0, src_node_std_time_shift: float = 1.0, 
                  dst_node_mean_time_shift_dst: float = 0.0, time_partitioned_node_degrees = None,
                  dst_node_std_time_shift: float = 1.0, device: str = 'cpu', init_weights: str = 'degree',
-                 use_init_method = False, attfus = True, bipartite = False, num_combinations = 32, num_samples_per_combination = 200):
+                 use_init_method = False, attfus = True, bipartite = False, num_combinations = 32, num_samples_per_combination = 200, last_k = 20):
         """
         General framework for memory-based models, support TGN, DyRep and JODIE.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -40,6 +40,7 @@ class MemoryModel(torch.nn.Module):
         self.node_feat_dim = self.node_raw_features.shape[1]
         self.edge_feat_dim = self.edge_raw_features.shape[1]
         self.time_feat_dim = time_feat_dim
+        self.last_k = last_k
         self.num_layers = num_layers
         self.num_heads = num_heads
         self.min_time = min_time
@@ -79,7 +80,7 @@ class MemoryModel(torch.nn.Module):
         if self.use_init_method and self.attfus:
             self.attfus = AttentionFusion(self.memory_dim)
             self.time_transformation_for_init = nn.ModuleList(
-                [TT_DICT[name](min_time, total_time) for name in self.init_weights]
+                [TT_DICT[name](min_time = min_time, total_time = total_time, last_k = self.last_k) for name in self.init_weights]
             )
         elif self.use_init_method:
             self.time_transformation_for_init = TT_DICT[self.init_weights](min_time, total_time)
@@ -87,7 +88,7 @@ class MemoryModel(torch.nn.Module):
         self.message_aggregator = MessageAggregator()
 
         # memory modules
-        self.memory_bank = MemoryBank(num_nodes=self.num_nodes, memory_dim=self.memory_dim, device = self.device)
+        self.memory_bank = MemoryBank(num_nodes=self.num_nodes, memory_dim=self.memory_dim, device = self.device, k = self.last_k)
         if self.model_name == 'TGN':
             self.memory_updater = GRUMemoryUpdater(memory_bank=self.memory_bank, message_dim=self.message_dim, memory_dim=self.memory_dim)
         elif self.model_name in ['DyRep', 'JODIE']:

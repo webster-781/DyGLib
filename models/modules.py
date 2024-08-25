@@ -285,7 +285,7 @@ class TransformerEncoder(nn.Module):
         return outputs
 
 class TimeInitTransformExp(nn.Module):
-    def __init__(self, min_time, total_time):
+    def __init__(self, min_time, total_time, **args):
         super(TimeInitTransformExp, self).__init__()
         self.lin = nn.Linear(1, 1, bias = False)
         self.lin.weight.data.fill_(1)
@@ -310,7 +310,7 @@ class TimeInitTransformExp(nn.Module):
         return output
 
 class TimeInitTransformLinear(nn.Module):
-    def __init__(self, min_time, total_time):
+    def __init__(self, min_time, total_time, **args):
         super(TimeInitTransformLinear, self).__init__()
         self.lin = nn.Linear(1, 1, bias = True)
         self.lin.weight.data.fill_(1)
@@ -360,7 +360,7 @@ class TimeInitTransformFourier(nn.Module):
         return output
     
 class TimeInitTransformMLP(nn.Module):
-    def __init__(self, min_time, total_time):
+    def __init__(self, min_time, total_time, **args):
         super(TimeInitTransformMLP, self).__init__()
         self.mlp_for_time = nn.Sequential(
             nn.Linear(1, 1),
@@ -410,7 +410,7 @@ class TimeInitTransformMLP2(nn.Module):
         
         
 class TimeInitTransform3Unite(nn.Module):
-    def __init__(self, min_time, total_time,  dim = 64,):
+    def __init__(self, min_time, total_time, dim = 64,):
         super(TimeInitTransform3Unite, self).__init__()
         self.exp = TimeInitTransformExp(min_time)
         self.linear = TimeInitTransformLinear(min_time)
@@ -429,7 +429,7 @@ class TimeInitTransform3Unite(nn.Module):
         return total_out
     
 class TimeInitTransformQuad(nn.Module):
-    def __init__(self, min_time, total_time):
+    def __init__(self, min_time, total_time, **args):
         super(TimeInitTransformQuad, self).__init__()
         self.lin = nn.Linear(2, 1, bias = True)
         self.lin.weight.data.fill_(0.1)
@@ -454,7 +454,7 @@ class TimeInitTransformQuad(nn.Module):
         return output
 
 class TimeInitTransformCubic(nn.Module):
-    def __init__(self, min_time, total_time):
+    def __init__(self, min_time, total_time, **args):
         super(TimeInitTransformCubic, self).__init__()
         self.lin = nn.Linear(3, 1, bias = True)
         self.lin.weight.data.fill_(0.1)
@@ -479,7 +479,7 @@ class TimeInitTransformCubic(nn.Module):
         return output
 
 class TimeInitTransformContext(nn.Module):
-    def __init__(self, min_time, total_time):
+    def __init__(self, min_time, total_time, **args):
         super(TimeInitTransformContext, self).__init__()
         # self.lin = nn.Linear(2, 1, bias = True)
         # self.lin = nn.Sequential(
@@ -524,6 +524,29 @@ class TimeInitTransformContext(nn.Module):
         output = torch.sum(zeros, dim = 1)
         return output
     
+class TimeInitTotalMLP(nn.Module):
+    def __init__(self, min_time, total_time, last_k = 20):
+        super(TimeInitTotalMLP, self).__init__()
+        self.last_k = last_k
+        self.lin = nn.Sequential(
+            nn.Linear(last_k, 1, bias = True),
+        )
+        self.lin[0].weight.data.fill_(-0.1)
+        self.lin[0].bias.data.fill_(0.5)
+        self.min_time = min_time
+        self.total_time = total_time
+
+    def forward(self, time_diffs, curr_time):
+        check_time = -1 - curr_time
+        n, k = time_diffs.shape
+        if curr_time == self.min_time:
+            curr_time = curr_time * (1.01)
+        mask = torch.argwhere(time_diffs - check_time != 0)
+        lin_out = time_diffs/(curr_time-self.min_time)
+        zeros = 50*torch.ones(n, k).to(time_diffs.device)
+        zeros[mask] = lin_out[mask]
+        return self.lin[0](zeros).reshape(-1)
+
 TT_DICT = {
     'time-exp': TimeInitTransformExp, 
     'time-linear': TimeInitTransformLinear, 
@@ -536,6 +559,7 @@ TT_DICT = {
     'time-context':TimeInitTransformContext,
     'degree': torch.nn.Identity,
     'log-degree': torch.nn.Identity,
+    'time-total': TimeInitTotalMLP
 }
 
 class AttentionFusion(torch.nn.Module):

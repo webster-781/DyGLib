@@ -12,7 +12,7 @@ def get_link_prediction_args(is_evaluation: bool = False):
     # arguments
     parser = argparse.ArgumentParser('Interface for the link prediction task')
     parser.add_argument('--dataset_name', type=str, help='dataset to be used', default='wikipedia',
-                        choices=['wikipedia', 'reddit', 'mooc', 'lastfm', 'myket', 'enron', 'SocialEvo', 'uci', 'Flights', 'CanParl', 'USLegis', 'UNtrade', 'UNvote', 'Contacts', "ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m", "ia-reality-call"])
+                        choices=['wikipedia', 'reddit', 'mooc', 'lastfm', 'myket', 'enron', 'SocialEvo', 'uci', 'Flights', 'CanParl', 'USLegis', 'UNtrade', 'UNvote', 'Contacts', "ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m", "ia-reality-call", 'SMS-A', 'comm-linux-kernel-reply', 'ia-chess', 'digg-friends', 'ia-enron-email-all', 'imdb', 'soc-sign-bitcoinalpha', 'soc-sign-bitcoinotc', 'ia-stackexch-user-marks-post-und', 'soc-youtube-growth', 'tech-as-topology'])
     parser.add_argument('--batch_size', type=int, default=200, help='batch size')
     parser.add_argument('--model_name', type=str, default='DyGFormer', help='name of the model, note that EdgeBank is only applicable for evaluation',
                         choices=['JODIE', 'DyRep', 'TGAT', 'TGN', 'CAWN', 'EdgeBank', 'TCL', 'GraphMixer', 'DyGFormer', 'DecoLP'])
@@ -53,12 +53,13 @@ def get_link_prediction_args(is_evaluation: bool = False):
     parser.add_argument('--t1_factor_of_t2', type=float, default=1, help='t1 factor of t2 when t2 is 0.04 of total time')
     parser.add_argument('--use_init_method', action = 'store_true', help='Use new init method')
     parser.add_argument('--emb_proj', action = 'store_true', help='Use embedding projection before weighted average')
-    parser.add_argument('--init_weights', type = str, nargs='+', choices = ['degree', 'log-degree', 'time-exp', 'time-linear', 'time-fourier', 'time-mlp', 'time-mlp2', 'time-3unite', 'normal-dyg', 'time-quad', 'time-cubic', 'time-context'], default = [])
+    parser.add_argument('--init_weights', type = str, nargs='+', choices = ['degree', 'log-degree', 'time-exp', 'time-linear', 'time-fourier', 'time-mlp', 'time-mlp2', 'time-3unite', 'normal-dyg', 'time-quad', 'time-cubic', 'time-context', 'time-total'], default = [])
     parser.add_argument('--clip', type= float, help = 'clip val for grad of time-transformation operation', default = 1.0)
     parser.add_argument('--attfus', action = 'store_true', help='Use attention fusion on exp and linear')
     parser.add_argument('--predictor', type=str, default = 'mlp', choices=['mlp', 'inner', 'mlp_diff', 'l2'])
     parser.add_argument('--num_combinations', type=int, default = 32, help = 'Number of combinations of high degree nodes for finding new embeddings')
     parser.add_argument('--num_samples_per_combination', type=int, default = 200, help = 'Number of samples per combination, use -1 for using all nodes')
+    parser.add_argument('--last_k', type=int, default = 20, help = 'Last k updated times to be used in EInSTeIN')
 
     try:
         args = parser.parse_args()

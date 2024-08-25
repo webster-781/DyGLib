@@ -156,12 +156,12 @@ def check_data(dataset_name: str):
 parser = argparse.ArgumentParser('Interface for preprocessing datasets')
 parser.add_argument('--dataset_name', type=str,
                     choices=['wikipedia', 'reddit', 'mooc', 'lastfm', 'myket', 'enron', 'SocialEvo', 'uci',
-                             'Flights', 'CanParl', 'USLegis', 'UNtrade', 'UNvote', 'Contacts', "ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m", "ia-reality-call"],
+                             'Flights', 'CanParl', 'USLegis', 'UNtrade', 'UNvote', 'Contacts', "ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m", "ia-reality-call", 'SMS-A', 'comm-linux-kernel-reply', 'ia-chess', 'digg-friends', 'ia-enron-email-all', 'imdb', 'rec-stackoverflow', 'soc-sign-bitcoinalpha', 'soc-sign-bitcoinotc', 'ia-stackexch-user-marks-post-und', 'soc-youtube-growth', 'tech-as-topology'],
                     help='Dataset name', default='wikipedia')
 parser.add_argument('--node_feat_dim', type=int, default=172, help='Number of node raw features')
 
 args = parser.parse_args()
-if "ia-" in args.dataset_name:
+if args.dataset_name in ["ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m", "ia-reality-call", 'SMS-A', 'comm-linux-kernel-reply', 'ia-chess', 'digg-friends', 'ia-enron-email-all', 'imdb', 'soc-sign-bitcoinalpha', 'soc-sign-bitcoinotc', 'ia-stackexch-user-marks-post-und', 'soc-youtube-growth', 'tech-as-topology']:
     args.node_feat_dim = 32
     
 print(f'preprocess dataset {args.dataset_name}...')
@@ -171,7 +171,7 @@ if args.dataset_name in ['enron', 'SocialEvo', 'uci']:
     print(f'the original dataset of {args.dataset_name} is unavailable, directly use the processed dataset by previous works.')
 else:
     # bipartite dataset
-    if args.dataset_name in ['wikipedia', 'reddit', 'mooc', 'lastfm', 'myket', 'ia-escorts-dynamic', 'ia-movielens-user2tags-10m']:
+    if args.dataset_name in ['wikipedia', 'reddit', 'mooc', 'lastfm', 'myket', 'ia-escorts-dynamic', 'ia-movielens-user2tags-10m', 'rec-stackoverflow', 'ia-stackexch-user-marks-post-und']:
         preprocess_data(dataset_name=args.dataset_name, bipartite=True, node_feat_dim=args.node_feat_dim)
     else:
         preprocess_data(dataset_name=args.dataset_name, bipartite=False, node_feat_dim=args.node_feat_dim)

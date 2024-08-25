@@ -104,7 +104,7 @@ def get_link_prediction_data(dataset_name: str, val_ratio: float, test_ratio: fl
     graph_df = pd.read_csv('./processed_data/{}/ml_{}.csv'.format(dataset_name, dataset_name))
     edge_raw_features = np.load('./processed_data/{}/ml_{}.npy'.format(dataset_name, dataset_name))
     node_raw_features = np.load('./processed_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name))
-    if "ia-" in dataset_name:
+    if dataset_name in ["ia-slashdot-reply-dir", "ia-digg-reply", "ia-retweet-pol", "ia-escorts-dynamic", "ia-movielens-user2tags-10m", "ia-reality-call", 'SMS-A', 'comm-linux-kernel-reply', 'ia-chess', 'digg-friends', 'ia-enron-email-all', 'imdb', 'soc-sign-bitcoinalpha', 'soc-sign-bitcoinotc', 'ia-stackexch-user-marks-post-und', 'soc-youtube-growth', 'tech-as-topology']:
         NODE_FEAT_DIM = position_feat_dim # Since max 1 edge feature and no node feature
         EDGE_FEAT_DIM = 4 # Since max 1 edge feature and no node feature
     else:

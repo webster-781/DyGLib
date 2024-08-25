@@ -306,7 +306,8 @@ if __name__ == "__main__":
                     src_nodes = torch.LongTensor(list(src_node_set)),
                     dst_nodes = torch.LongTensor(list(dst_node_set)),
                     num_combinations = args.num_combinations,
-                    num_samples_per_combination = args.num_samples_per_combination
+                    num_samples_per_combination = args.num_samples_per_combination,
+                    last_k = args.last_k
                 )
             elif args.model_name == "DecoLP":
                 # four floats that represent the mean and standard deviation of source and destination node time shifts in the training data, which is used for JODIE
